@@ -279,7 +279,7 @@ export const corsHeaders = {
 
 ### Frontend (`.env`)
 ```env
-VITE_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+VITE_SUPABASE_URL=https://mjjxvmumjfvlpfnkwzko.supabase.co
 VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
@@ -301,7 +301,7 @@ EMAIL_FROM=... (optional)
 
 ```bash
 # Link project
-supabase link --project-ref YOUR_PROJECT_REF
+supabase link --project-ref mjjxvmumjfvlpfnkwzko
 
 # Apply migrations
 supabase db push

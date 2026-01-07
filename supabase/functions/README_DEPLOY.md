@@ -50,7 +50,7 @@ supabase functions deploy scan-product
 
 **Test:**
 ```bash
-curl -X POST https://YOUR_PROJECT_REF.supabase.co/functions/v1/scan-product \
+curl -X POST https://mjjxvmumjfvlpfnkwzko.supabase.co/functions/v1/scan-product \
   -H "Authorization: Bearer YOUR_ANON_KEY" \
   -H "Content-Type: application/json" \
   -d '{"query": "iPhone 13", "region_key": "US"}'
@@ -77,7 +77,7 @@ supabase functions deploy ebay-search
 
 **Test:**
 ```bash
-curl -X POST https://YOUR_PROJECT_REF.supabase.co/functions/v1/ebay-search \
+curl -X POST https://mjjxvmumjfvlpfnkwzko.supabase.co/functions/v1/ebay-search \
   -H "Authorization: Bearer YOUR_ANON_KEY" \
   -H "Content-Type: application/json" \
   -d '{"q": "iPhone 13", "limit": 10}'
@@ -102,7 +102,7 @@ supabase functions deploy ebay-sold
 
 **Test:**
 ```bash
-curl -X POST https://YOUR_PROJECT_REF.supabase.co/functions/v1/ebay-sold \
+curl -X POST https://mjjxvmumjfvlpfnkwzko.supabase.co/functions/v1/ebay-sold \
   -H "Authorization: Bearer YOUR_ANON_KEY" \
   -H "Content-Type: application/json" \
   -d '{"q": "iPhone 13", "limit": 10}'

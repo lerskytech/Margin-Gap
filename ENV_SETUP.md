@@ -22,13 +22,12 @@ Quick guide to configure frontend environment variables for MarginGap.
 
 3. Paste your values:
    ```env
-   VITE_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+   VITE_SUPABASE_URL=https://mjjxvmumjfvlpfnkwzko.supabase.co
    VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
    ```
 
 4. Replace:
-   - `YOUR_PROJECT_REF` with your actual project reference ID
-   - The anon key with your actual anon public key
+   - The anon key with your actual anon public key (project URL is already set)
 
 ## Step 3: Verify Setup
 

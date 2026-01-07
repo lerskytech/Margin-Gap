@@ -52,7 +52,7 @@ supabase --version
 3. **Link your project:**
    ```bash
    cd /path/to/price-intel-scanner
-   supabase link --project-ref YOUR_PROJECT_REF
+   supabase link --project-ref mjjxvmumjfvlpfnkwzko
    ```
    When prompted, enter your database password.
 
@@ -105,9 +105,9 @@ supabase --version
    - **Authorized JavaScript origins**:
      - `http://localhost:5173` (Vite dev server)
      - `http://localhost:3000` (if using different port)
-     - `https://YOUR_PROJECT_REF.supabase.co` (Supabase callback)
+     - `https://mjjxvmumjfvlpfnkwzko.supabase.co` (Supabase callback)
    - **Authorized redirect URIs**:
-     - `https://YOUR_PROJECT_REF.supabase.co/auth/v1/callback`
+     - `https://mjjxvmumjfvlpfnkwzko.supabase.co/auth/v1/callback`
      - `http://localhost:5173/auth/callback` (if needed)
 6. Copy the **Client ID** and **Client Secret**
 
@@ -132,7 +132,7 @@ supabase --version
    http://localhost:5173/*
    https://your-production-domain.com
    https://your-production-domain.com/*
-   https://YOUR_PROJECT_REF.supabase.co/auth/v1/callback
+   https://mjjxvmumjfvlpfnkwzko.supabase.co/auth/v1/callback
    ```
 
 ## Part 6: Deploy Edge Functions
@@ -164,12 +164,12 @@ Go to Supabase Dashboard → Edge Functions → Secrets and add:
 
 1. Go to Supabase Dashboard → Project Settings → API
 2. Copy:
-   - **Project URL**: `https://YOUR_PROJECT_REF.supabase.co`
+   - **Project URL**: `https://mjjxvmumjfvlpfnkwzko.supabase.co`
    - **anon public key**: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...`
 
 3. Create `.env` file (see `ENV_SETUP.md`):
    ```env
-   VITE_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+   VITE_SUPABASE_URL=https://mjjxvmumjfvlpfnkwzko.supabase.co
    VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
    ```
 
@@ -206,7 +206,7 @@ SELECT * FROM public.profiles LIMIT 1;
 
 1. **Test scan-product:**
    ```bash
-   curl -X POST https://YOUR_PROJECT_REF.supabase.co/functions/v1/scan-product \
+   curl -X POST https://mjjxvmumjfvlpfnkwzko.supabase.co/functions/v1/scan-product \
      -H "Authorization: Bearer YOUR_ANON_KEY" \
      -H "Content-Type: application/json" \
      -d '{"query": "iPhone 13", "region_key": "US"}'
@@ -281,7 +281,7 @@ Run through this checklist to verify everything works:
 
 **"Redirect URI mismatch"**
 - Check Google OAuth redirect URIs include:
-  - `https://YOUR_PROJECT_REF.supabase.co/auth/v1/callback`
+  - `https://mjjxvmumjfvlpfnkwzko.supabase.co/auth/v1/callback`
 - Check Supabase redirect URLs include your app URL
 
 **"Auth is disabled" message still shows**

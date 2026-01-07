@@ -66,11 +66,11 @@ This guide provides step-by-step instructions for configuring Google OAuth authe
      (Add your production domain when ready)
    - **Authorized redirect URIs** (CRITICAL - must include Supabase callback):
      ```
-     https://<YOUR_PROJECT_REF>.supabase.co/auth/v1/callback
+     https://mjjxvmumjfvlpfnkwzko.supabase.co/auth/v1/callback
      http://localhost:5179/auth/callback
      http://localhost:5173/auth/callback
      ```
-     > **Important**: Replace `<YOUR_PROJECT_REF>` with your actual Supabase project reference (found in your Supabase URL: `https://<PROJECT_REF>.supabase.co`)
+     > **Note**: Your Supabase project reference is `mjjxvmumjfvlpfnkwzko`
 8. Click **Create**
 9. Copy the **Client ID** and **Client Secret** (you'll need these for Supabase)
 
@@ -78,7 +78,7 @@ This guide provides step-by-step instructions for configuring Google OAuth authe
 
 The most critical redirect URI is:
 ```
-https://<YOUR_PROJECT_REF>.supabase.co/auth/v1/callback
+https://mjjxvmumjfvlpfnkwzko.supabase.co/auth/v1/callback
 ```
 
 This is where Google redirects after authentication, and Supabase handles the OAuth flow before redirecting to your app.
@@ -91,7 +91,7 @@ This is where Google redirects after authentication, and Supabase handles the OA
 
 **Causes:**
 1. **Wrong redirect URI in Google Console**
-   - Verify `https://<PROJECT_REF>.supabase.co/auth/v1/callback` is in Authorized redirect URIs
+   - Verify `https://mjjxvmumjfvlpfnkwzko.supabase.co/auth/v1/callback` is in Authorized redirect URIs
    - Check for typos, missing `https://`, or trailing slashes
 
 2. **Missing redirect URL in Supabase**
@@ -161,7 +161,7 @@ When deploying to production:
 3. **Update Google Console**:
    - Add production domain to Authorized JavaScript origins
    - Add production callback to Authorized redirect URIs
-   - Note: The Supabase callback URL (`https://<PROJECT_REF>.supabase.co/auth/v1/callback`) remains the same
+   - Note: The Supabase callback URL (`https://mjjxvmumjfvlpfnkwzko.supabase.co/auth/v1/callback`) remains the same
 
 4. **Update Environment Variables**:
    - Ensure production build uses correct `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`
@@ -179,7 +179,7 @@ Supabase redirects to: accounts.google.com
   ↓
 User authenticates with Google
   ↓
-Google redirects to: https://<PROJECT_REF>.supabase.co/auth/v1/callback
+Google redirects to: https://mjjxvmumjfvlpfnkwzko.supabase.co/auth/v1/callback
   ↓
 Supabase processes OAuth code, creates session
   ↓
