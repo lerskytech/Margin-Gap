@@ -7,9 +7,52 @@ document.addEventListener('DOMContentLoaded', () => {
   const keyInput = document.getElementById('supabase-key')
   const testButton = document.getElementById('test-button')
   const configStatus = document.getElementById('config-status')
+  const authStatus = document.getElementById('auth-status')
+  const signInButton = document.getElementById('sign-in-button')
+  const signOutButton = document.getElementById('sign-out-button')
 
   // Load saved settings
   loadSettings()
+  
+  // Load auth status
+  loadAuthStatus()
+  
+  // Auth button handlers
+  signInButton.addEventListener('click', async () => {
+    signInButton.disabled = true
+    signInButton.textContent = 'Signing in...'
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'SIGN_IN' })
+      if (response.success) {
+        showStatus('✓ Signed in successfully!', 'success')
+        await loadAuthStatus()
+      } else {
+        showStatus('Sign in failed: ' + (response.error || 'Unknown error'), 'error')
+      }
+    } catch (error) {
+      showStatus('Sign in failed: ' + error.message, 'error')
+    } finally {
+      signInButton.disabled = false
+      signInButton.textContent = 'Sign in with Google'
+    }
+  })
+  
+  signOutButton.addEventListener('click', async () => {
+    signOutButton.disabled = true
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'SIGN_OUT' })
+      if (response.success) {
+        showStatus('Signed out successfully', 'success')
+        await loadAuthStatus()
+      } else {
+        showStatus('Sign out failed: ' + (response.error || 'Unknown error'), 'error')
+      }
+    } catch (error) {
+      showStatus('Sign out failed: ' + error.message, 'error')
+    } finally {
+      signOutButton.disabled = false
+    }
+  })
 
   // Validate inputs on change
   urlInput.addEventListener('input', () => validateInputs())
@@ -181,6 +224,44 @@ document.addEventListener('DOMContentLoaded', () => {
       testButton.disabled = false
       testButton.textContent = 'Test Connection'
     }
+  }
+
+  // Load auth status
+  async function loadAuthStatus() {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'GET_SESSION_STATUS' })
+      if (response.success && response.data.isAuthenticated) {
+        authStatus.innerHTML = `
+          <div style="font-size: 14px; color: #10b981; font-weight: 500;">
+            ✓ Signed in as ${escapeHtml(response.data.email || 'User')}
+          </div>
+        `
+        signInButton.style.display = 'none'
+        signOutButton.style.display = 'block'
+      } else {
+        authStatus.innerHTML = `
+          <div style="font-size: 14px; color: #6b7280;">
+            Not signed in. Sign in to enable alerts.
+          </div>
+        `
+        signInButton.style.display = 'block'
+        signOutButton.style.display = 'none'
+      }
+    } catch (error) {
+      authStatus.innerHTML = `
+        <div style="font-size: 14px; color: #ef4444;">
+          Error checking auth status
+        </div>
+      `
+      signInButton.style.display = 'block'
+      signOutButton.style.display = 'none'
+    }
+  }
+  
+  function escapeHtml(text) {
+    const div = document.createElement('div')
+    div.textContent = text
+    return div.innerHTML
   }
 
   // Show status message

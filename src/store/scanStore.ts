@@ -2,12 +2,17 @@ import { create } from 'zustand'
 import type { ScanResult, RegionKey } from '@/lib/types'
 import { scanProduct } from '@/features/scans/scanService'
 import { devError } from '@/lib/devLog'
+import { makeScanKey } from '@/utils/scanKey'
 
 interface RecentScan {
-  id: string
+  scanKey: string // Stable key for deduplication
+  latestScanId: string // Most recent scan_id for this key
   query: string
   timestamp: string
   productId: string
+  region_key?: string // Region/scope for display
+  count: number // Number of scans with this key
+  allScanIds: string[] // All scan_ids for this key (for history)
 }
 
 interface ScanState {
@@ -82,21 +87,49 @@ export const useScanStore = create<ScanState>((set, get) => ({
       const historyWithoutThis = history.filter(s => s.scan_id !== result.scan_id)
       const newHistory = [result, ...historyWithoutThis].slice(0, 200)
       
-      // Add to recent scans (dedupe by id, upsert if exists)
-      const recentScan: RecentScan = {
-        id: result.scan_id,
-        query: result.query,
-        timestamp: result.scanned_at || new Date().toISOString(),
-        productId: result.product_id,
-      }
+      // Group recent scans by stable key (dedupe by query + scope + sources)
+      const scanKey = makeScanKey(result)
+      const existingRecentScans = get().recentScans
+      const existingGroup = existingRecentScans.find(s => s.scanKey === scanKey)
       
-      // Remove existing entry with same id, then prepend
-      const recentScans = [recentScan, ...get().recentScans.filter(s => s.id !== recentScan.id)].slice(0, 10)
+      let updatedRecentScans: RecentScan[]
+      if (existingGroup) {
+        // Update existing group: increment count, update latest scan
+        updatedRecentScans = existingRecentScans.map(s => {
+          if (s.scanKey === scanKey) {
+            return {
+              ...s,
+              latestScanId: result.scan_id,
+              timestamp: result.scanned_at || new Date().toISOString(),
+              count: s.count + 1,
+              allScanIds: [result.scan_id, ...s.allScanIds.filter(id => id !== result.scan_id)].slice(0, 50), // Keep last 50
+            }
+          }
+          return s
+        })
+        // Move updated group to front
+        const groupIndex = updatedRecentScans.findIndex(s => s.scanKey === scanKey)
+        const group = updatedRecentScans.splice(groupIndex, 1)[0]
+        updatedRecentScans = [group, ...updatedRecentScans]
+      } else {
+        // Create new group
+        const newGroup: RecentScan = {
+          scanKey,
+          latestScanId: result.scan_id,
+          query: result.query,
+          timestamp: result.scanned_at || new Date().toISOString(),
+          productId: result.product_id,
+          region_key: result.region_key,
+          count: 1,
+          allScanIds: [result.scan_id],
+        }
+        updatedRecentScans = [newGroup, ...existingRecentScans].slice(0, 20) // Keep top 20 groups
+      }
       
       set({ 
         currentScan: result, 
         loading: false, 
-        recentScans, 
+        recentScans: updatedRecentScans, 
         scanCache: cache,
         scanHistory: newHistory,
         error: null 
@@ -104,7 +137,7 @@ export const useScanStore = create<ScanState>((set, get) => ({
       
       // Save to localStorage as fallback
       try {
-        localStorage.setItem('recent_scans', JSON.stringify(recentScans))
+        localStorage.setItem('recent_scans', JSON.stringify(updatedRecentScans))
         // Also cache the full scan result (keep last 20)
         const cacheData = Array.from(cache.entries()).map(([id, scan]) => ({
           id,
@@ -128,12 +161,12 @@ export const useScanStore = create<ScanState>((set, get) => ({
     }
   },
   selectScan: (scanId: string) => {
-    // Load scan from cache without creating a new scan
+    // Load scan from cache without creating a new scan or adding to recent scans
     const cache = get().scanCache
     const cachedScan = cache.get(scanId)
     
     if (cachedScan) {
-      // Validate and set the cached scan
+      // Validate and set the cached scan (DO NOT add to recentScans - just select it)
       const safeScan: ScanResult = {
         ...cachedScan,
         aggregates: Array.isArray(cachedScan.aggregates) ? cachedScan.aggregates : [],
@@ -231,11 +264,41 @@ export const useScanStore = create<ScanState>((set, get) => ({
     try {
       const stored = localStorage.getItem('recent_scans')
       if (stored) {
-        const scans = JSON.parse(stored) as RecentScan[]
-        // Validate scan shape and dedupe by id
-        const validScans = scans.filter(s => s && s.id && s.query && s.timestamp)
+        const scans = JSON.parse(stored) as Array<RecentScan | { id: string; query: string; timestamp: string; productId: string }>
+        // Validate scan shape - support both old format (id) and new format (scanKey)
+        const validScans: RecentScan[] = scans
+          .map(s => {
+            if (!s || !s.query || !s.timestamp) return null
+            // Migrate old format to new format
+            if ('id' in s && !('scanKey' in s)) {
+              // Old format - try to reconstruct from cache
+              const cache = get().scanCache
+              const cachedScan = cache.get(s.id)
+              if (cachedScan) {
+                return {
+                  scanKey: makeScanKey(cachedScan),
+                  latestScanId: s.id,
+                  query: s.query,
+                  timestamp: s.timestamp,
+                  productId: s.productId || '',
+                  region_key: cachedScan.region_key,
+                  count: 1,
+                  allScanIds: [s.id],
+                } as RecentScan
+              } else {
+                return null // Skip if we can't reconstruct
+              }
+            }
+            // Already new format
+            if ('scanKey' in s && 'latestScanId' in s) {
+              return s as RecentScan
+            }
+            return null
+          })
+          .filter((s): s is RecentScan => s !== null)
+        // Dedupe by scanKey (keep most recent)
         const uniqueScans = Array.from(
-          new Map(validScans.map(s => [s.id, s])).values()
+          new Map(validScans.map(s => [s.scanKey, s])).values()
         )
         set({ recentScans: uniqueScans })
       }

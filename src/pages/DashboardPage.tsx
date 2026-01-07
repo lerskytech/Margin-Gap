@@ -383,6 +383,7 @@ export function DashboardPage() {
             onClose={() => setShowProductAlertModal(false)}
             onSuccess={() => {
               // Alert created successfully
+              showToast(`Alert enabled for ${currentScan.query}`)
             }}
           />
         </div>

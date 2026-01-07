@@ -224,23 +224,19 @@ serve(async (req) => {
       results.processed++
 
       try {
-        // Check cooldown
-        if (alert.last_triggered_at) {
-          const hoursSince = (Date.now() - new Date(alert.last_triggered_at).getTime()) / (1000 * 60 * 60)
+        // Check cooldown (use last_sent_at if available, otherwise last_triggered_at)
+        const lastSent = alert.last_sent_at || alert.last_triggered_at
+        if (lastSent) {
+          const hoursSince = (Date.now() - new Date(lastSent).getTime()) / (1000 * 60 * 60)
           if (hoursSince < COOLDOWN_HOURS) {
             continue // Skip if within cooldown
           }
         }
 
-        // Get user profile for email
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('email')
-          .eq('id', alert.user_id)
-          .single()
-
-        if (!profile || !profile.email) {
-          console.warn(`No email for user ${alert.user_id}`)
+        // Use user_email from alert (stored at creation time)
+        const userEmail = alert.user_email
+        if (!userEmail) {
+          console.warn(`No user_email for alert ${alert.id}`)
           continue
         }
 
@@ -276,13 +272,16 @@ serve(async (req) => {
 
         if (triggered) {
           // Send email
-          const emailSent = await sendAlertEmail(supabaseUrl, profile.email, alert, scanResult)
+          const emailSent = await sendAlertEmail(supabaseUrl, userEmail, alert, scanResult)
 
           if (emailSent) {
-            // Update last_triggered_at
+            // Update last_triggered_at and last_sent_at
             await supabase
               .from('product_alerts')
-              .update({ last_triggered_at: new Date().toISOString() })
+              .update({ 
+                last_triggered_at: new Date().toISOString(),
+                last_sent_at: new Date().toISOString()
+              })
               .eq('id', alert.id)
 
             results.triggered++

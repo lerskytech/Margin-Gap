@@ -66,31 +66,52 @@ export function Sidebar() {
         <CardContent>
           {!recentScans || recentScans.length === 0 ? (
             <div className="text-sm text-muted-foreground text-center py-4">
-              Recent scans will appear here
+              Run a scan to see history here
             </div>
           ) : (
             <div className="space-y-2">
               {Array.isArray(recentScans) && recentScans.slice(0, 10).map((scan) => {
-                if (!scan || !scan.id || !scan.query) return null
+                if (!scan || !scan.latestScanId || !scan.query) return null
+                
+                // Format relative time
+                const timeAgo = scan.timestamp 
+                  ? (() => {
+                      const now = Date.now()
+                      const then = new Date(scan.timestamp).getTime()
+                      const diffMs = now - then
+                      const diffMins = Math.floor(diffMs / 60000)
+                      const diffHours = Math.floor(diffMs / 3600000)
+                      const diffDays = Math.floor(diffMs / 86400000)
+                      
+                      if (diffMins < 1) return 'just now'
+                      if (diffMins < 60) return `${diffMins}m ago`
+                      if (diffHours < 24) return `${diffHours}h ago`
+                      if (diffDays < 7) return `${diffDays}d ago`
+                      return new Date(scan.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                    })()
+                  : 'Unknown'
+                
                 return (
                   <button
-                    key={scan.id}
+                    key={scan.scanKey}
                     className="w-full text-left p-3 rounded-lg border border-subtle bg-surface hover:bg-accent hover:border-primary/50 hover:shadow-sm transition-all duration-150"
                     onClick={() => {
-                      if (scan.id) {
-                        // Select existing scan - do NOT create a new scan
-                        selectScan(scan.id)
-                      }
+                      // Select the latest scan for this group - do NOT create a new scan
+                      selectScan(scan.latestScanId)
                     }}
                   >
-                    <div className="font-medium text-sm truncate">{scan.query}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {scan.timestamp 
-                        ? new Date(scan.timestamp).toLocaleDateString('en-US', {
-                            month: 'short',
-                            day: 'numeric',
-                          })
-                        : 'Unknown date'}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-sm truncate">{scan.query}</div>
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          {scan.region_key || 'US'} • {timeAgo}
+                        </div>
+                      </div>
+                      {scan.count > 1 && (
+                        <span className="flex-shrink-0 text-xs font-medium text-muted-foreground bg-accent px-2 py-0.5 rounded-full">
+                          ×{scan.count}
+                        </span>
+                      )}
                     </div>
                   </button>
                 )

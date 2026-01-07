@@ -139,12 +139,14 @@ CREATE TABLE IF NOT EXISTS public.alert_events (
 CREATE TABLE IF NOT EXISTS public.product_alerts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  user_email TEXT NOT NULL, -- Email for notifications (copy of auth email at creation time)
   query_text TEXT NOT NULL,
   scope TEXT NOT NULL DEFAULT 'national' CHECK (scope IN ('national', 'local')),
   region TEXT,
   condition JSONB NOT NULL DEFAULT '{}'::jsonb,
   is_active BOOLEAN NOT NULL DEFAULT true,
   last_triggered_at TIMESTAMPTZ,
+  last_sent_at TIMESTAMPTZ, -- When email was last sent (for rate limiting)
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

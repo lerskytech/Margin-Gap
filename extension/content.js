@@ -315,6 +315,26 @@
                 View full analysis →
               </a>
             </div>
+            <div class="margingap-alert-form" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(0,0,0,0.1);">
+              <div style="margin-bottom: 8px;">
+                <label style="display: block; font-size: 11px; font-weight: 500; color: #6b7280; margin-bottom: 4px;">Alert Condition</label>
+                <select class="margingap-alert-type" style="width: 100%; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 12px; background: white;">
+                  <option value="price_below">Price below $X</option>
+                  <option value="price_above">Price above $X</option>
+                  <option value="pct_below_msrp">% below MSRP</option>
+                  <option value="pct_above_msrp">% above MSRP</option>
+                </select>
+              </div>
+              <div style="margin-bottom: 8px;">
+                <label style="display: block; font-size: 11px; font-weight: 500; color: #6b7280; margin-bottom: 4px;">Threshold Value</label>
+                <input type="number" step="0.01" class="margingap-alert-value" placeholder="Enter value" style="width: 100%; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 12px; box-sizing: border-box;">
+              </div>
+              <div style="display: flex; gap: 6px;">
+                <button class="margingap-alert-save" style="flex: 1; padding: 6px 12px; background: #3b82f6; color: white; border: none; border-radius: 4px; font-size: 12px; font-weight: 500; cursor: pointer;">Save Alert</button>
+                <button class="margingap-alert-cancel" style="padding: 6px 12px; background: transparent; color: #6b7280; border: 1px solid #d1d5db; border-radius: 4px; font-size: 12px; cursor: pointer;">Cancel</button>
+              </div>
+              <div class="margingap-alert-message" style="display: none; margin-top: 8px; padding: 6px; border-radius: 4px; font-size: 11px;"></div>
+            </div>
           </div>
         </div>
       `
@@ -326,14 +346,109 @@
       const alertBtn = this.element?.querySelector('.margingap-button-alert')
       if (!alertBtn) return
       
+      const alertForm = this.element?.querySelector('.margingap-alert-form')
+      const alertType = this.element?.querySelector('.margingap-alert-type')
+      const alertValue = this.element?.querySelector('.margingap-alert-value')
+      const alertSave = this.element?.querySelector('.margingap-alert-save')
+      const alertCancel = this.element?.querySelector('.margingap-alert-cancel')
+      const alertMessage = this.element?.querySelector('.margingap-alert-message')
+      
       // Check auth state
       try {
-        const authResponse = await chrome.runtime.sendMessage({ type: 'GET_AUTH_STATE' })
+        const authResponse = await chrome.runtime.sendMessage({ type: 'GET_SESSION_STATUS' })
         const isAuthenticated = authResponse?.success && authResponse?.data?.isAuthenticated
         
         if (isAuthenticated) {
           alertBtn.setAttribute('data-authenticated', 'true')
-          alertBtn.addEventListener('click', () => this.handleSetAlert(query))
+          alertBtn.addEventListener('click', () => {
+            // Toggle alert form
+            if (alertForm) {
+              const isVisible = alertForm.style.display !== 'none'
+              alertForm.style.display = isVisible ? 'none' : 'block'
+              if (!isVisible) {
+                alertValue?.focus()
+              }
+            }
+          })
+          
+          // Handle save
+          alertSave?.addEventListener('click', async () => {
+            const type = alertType?.value || 'price_below'
+            const value = parseFloat(alertValue?.value || '0')
+            
+            if (!value || value <= 0) {
+              if (alertMessage) {
+                alertMessage.textContent = 'Please enter a valid threshold value'
+                alertMessage.style.display = 'block'
+                alertMessage.style.background = '#fee2e2'
+                alertMessage.style.color = '#991b1b'
+              }
+              return
+            }
+            
+            alertSave.disabled = true
+            alertSave.textContent = 'Saving...'
+            
+            try {
+              const response = await chrome.runtime.sendMessage({
+                type: 'CREATE_ALERT',
+                payload: {
+                  query_text: query,
+                  scope: 'national',
+                  condition: {
+                    type: type,
+                    value: value
+                  }
+                }
+              })
+              
+              if (response.success) {
+                if (alertMessage) {
+                  alertMessage.textContent = '✓ Alert enabled'
+                  alertMessage.style.display = 'block'
+                  alertMessage.style.background = '#d1fae5'
+                  alertMessage.style.color = '#065f46'
+                }
+                
+                // Auto-collapse after 1s
+                setTimeout(() => {
+                  if (alertForm) {
+                    alertForm.style.display = 'none'
+                  }
+                  if (alertMessage) {
+                    alertMessage.style.display = 'none'
+                  }
+                  alertValue.value = ''
+                  alertSave.disabled = false
+                  alertSave.textContent = 'Save Alert'
+                }, 1000)
+              } else {
+                throw new Error(response.error || 'Failed to create alert')
+              }
+            } catch (error) {
+              if (alertMessage) {
+                alertMessage.textContent = error.message || 'Failed to create alert'
+                alertMessage.style.display = 'block'
+                alertMessage.style.background = '#fee2e2'
+                alertMessage.style.color = '#991b1b'
+              }
+              alertSave.disabled = false
+              alertSave.textContent = 'Save Alert'
+            }
+          })
+          
+          // Handle cancel
+          alertCancel?.addEventListener('click', () => {
+            if (alertForm) {
+              alertForm.style.display = 'none'
+            }
+            if (alertValue) {
+              alertValue.value = ''
+            }
+            if (alertMessage) {
+              alertMessage.style.display = 'none'
+            }
+          })
         } else {
           alertBtn.setAttribute('data-authenticated', 'false')
           alertBtn.textContent = 'Sign in to enable alerts'
@@ -347,18 +462,9 @@
       }
     }
 
-    handleSetAlert(query) {
-      // Open web app with pre-filled query and alert modal
-      const url = new URL('https://margingap.com')
-      url.searchParams.set('query', query)
-      url.searchParams.set('action', 'set-alert')
-      chrome.tabs.create({ url: url.toString() })
-      this.destroyPopup()
-    }
-
     handleSignInPrompt() {
-      // Open web app login page
-      chrome.tabs.create({ url: 'https://margingap.com/login?redirect=extension' })
+      // Open extension options page for sign in
+      chrome.runtime.openOptionsPage()
       this.destroyPopup()
     }
 
@@ -502,7 +608,7 @@
       popup.updatePopup('loading', { query: parsed.query })
 
       // Get auth state
-      const authState = await chrome.runtime.sendMessage({ type: 'GET_AUTH_STATE' })
+      const authState = await chrome.runtime.sendMessage({ type: 'GET_SESSION_STATUS' })
       if (!authState.success) {
         throw new Error('Failed to get auth state')
       }

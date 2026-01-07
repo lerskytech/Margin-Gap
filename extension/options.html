@@ -119,6 +119,17 @@
   
   <div id="status" class="status"></div>
   
+  <div id="auth-section" style="margin-top: 32px; padding-top: 32px; border-top: 1px solid #e5e7eb;">
+    <h2 style="font-size: 18px; font-weight: 600; margin-bottom: 16px;">Account</h2>
+    <div id="auth-status" style="margin-bottom: 16px;">
+      <div style="font-size: 14px; color: #6b7280;">Checking authentication...</div>
+    </div>
+    <div id="auth-actions" style="display: flex; gap: 12px;">
+      <button type="button" id="sign-in-button" style="background: #3b82f6;">Sign in with Google</button>
+      <button type="button" id="sign-out-button" style="background: #ef4444; display: none;">Sign Out</button>
+    </div>
+  </div>
+  
   <style>
     .config-status.configured {
       color: #10b981;
@@ -126,6 +137,11 @@
     }
     #test-button:disabled {
       background: #9ca3af;
+      cursor: not-allowed;
+    }
+    #sign-in-button:disabled,
+    #sign-out-button:disabled {
+      opacity: 0.5;
       cursor: not-allowed;
     }
   </style>

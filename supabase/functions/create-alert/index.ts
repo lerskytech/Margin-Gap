@@ -66,11 +66,21 @@ serve(async (req) => {
     // Normalize query text
     const normalizedQuery = body.query_text.trim().toLowerCase()
 
+    // Get user email (from auth user or profile)
+    const userEmail = user.email || ''
+    if (!userEmail) {
+      return new Response(
+        JSON.stringify({ error: 'User email not found' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
     // Insert alert
     const { data: alert, error: insertError } = await supabase
       .from('product_alerts')
       .insert({
         user_id: user.id,
+        user_email: userEmail,
         query_text: normalizedQuery,
         scope: body.scope || 'national',
         region: body.region || null,
