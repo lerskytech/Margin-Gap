@@ -41,6 +41,9 @@ export function ProductIntelligencePanel({
   onShareReport,
   isAuthenticated = false,
 }: ProductIntelligencePanelProps) {
+  // Derived state flags for Actions panel
+  const isAuthed = Boolean(isAuthenticated)
+  
   const { verdict, aggregates, query, region_key, scanned_at } = scanResult
 
   // Ensure aggregates is always an array
@@ -314,35 +317,37 @@ export function ProductIntelligencePanel({
                 className="w-full justify-start" 
                 disabled={isBaseline}
                 onClick={onSetAlert}
-                title={isBaseline ? 'Sign in to activate' : undefined}
+                title={isBaseline ? 'Run a scan to activate' : !isAuthed ? 'Sign in to activate' : undefined}
               >
                 Set Alert
-                {isBaseline && <span className="ml-auto text-xs text-muted-foreground">Sign in to activate</span>}
-                {!isBaseline && !isAuthenticated && <span className="ml-auto text-xs text-muted-foreground">Sign in to enable</span>}
+                {isBaseline && <span className="ml-auto text-xs text-muted-foreground">Run a scan to activate</span>}
+                {!isBaseline && !isAuthed && <span className="ml-auto text-xs text-muted-foreground">Sign in to activate</span>}
               </Button>
               
               {/* Export Data */}
               <Button 
                 variant="outline" 
                 className="w-full justify-start" 
-                disabled={isBaseline || !isAuthenticated}
+                disabled={isBaseline || !isAuthed}
                 onClick={onExportData}
-                title={isBaseline || !isAuthenticated ? 'Sign in to activate' : undefined}
+                title={isBaseline ? 'Run a scan to activate' : !isAuthed ? 'Sign in to activate' : undefined}
               >
                 Export Data
-                {(isBaseline || !isAuthenticated) && <span className="ml-auto text-xs text-muted-foreground">Sign in to activate</span>}
+                {isBaseline && <span className="ml-auto text-xs text-muted-foreground">Run a scan to activate</span>}
+                {!isBaseline && !isAuthed && <span className="ml-auto text-xs text-muted-foreground">Sign in to activate</span>}
               </Button>
               
               {/* Share Report */}
               <Button 
                 variant="outline" 
                 className="w-full justify-start" 
-                disabled={isBaseline || !isAuthenticated}
+                disabled={isBaseline || !isAuthed}
                 onClick={onShareReport}
-                title={isBaseline || !isAuthenticated ? 'Sign in to activate' : undefined}
+                title={isBaseline ? 'Run a scan to activate' : !isAuthed ? 'Sign in to activate' : undefined}
               >
                 Share Report
-                {(isBaseline || !isAuthenticated) && <span className="ml-auto text-xs text-muted-foreground">Sign in to activate</span>}
+                {isBaseline && <span className="ml-auto text-xs text-muted-foreground">Run a scan to activate</span>}
+                {!isBaseline && !isAuthed && <span className="ml-auto text-xs text-muted-foreground">Sign in to activate</span>}
               </Button>
             </CardContent>
           </Card>
