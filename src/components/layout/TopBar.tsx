@@ -7,7 +7,11 @@ import { getLocationShortLabel } from '@/lib/location'
 import { Button } from '@/ui/Button'
 import { Input } from '@/ui/Input'
 
-export function TopBar() {
+interface TopBarProps {
+  onMenuClick?: () => void
+}
+
+export function TopBar({ onMenuClick }: TopBarProps) {
   const navigate = useNavigate()
   const { user, signOut } = useAuthStore()
   const { performScan, loading, setLocation } = useScanStore()
@@ -23,29 +27,64 @@ export function TopBar() {
 
   return (
     <div className="border-b border-subtle bg-surface/50 backdrop-blur-sm sticky top-0 z-50">
-      <div className="container mx-auto px-6 py-4">
-        <div className="flex items-center gap-3">
-          <div className="flex-1 flex items-center gap-3">
-            <div className="relative flex-1 max-w-2xl">
-              <div className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-              </div>
-              <Input
-                type="text"
-                placeholder="Search for a product..."
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleScan()}
-                className="pl-11 pr-4"
-              />
-              {import.meta.env.DEV && (
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-mono">
-                  ⌘K
-                </div>
-              )}
+      <div className="container mx-auto px-3 sm:px-6 py-3 sm:py-4">
+        {/* Mobile: Hamburger + Title */}
+        <div className="lg:hidden flex items-center gap-3 mb-3">
+          {onMenuClick && (
+            <button
+              onClick={onMenuClick}
+              className="p-2 rounded-lg hover:bg-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              aria-label="Open menu"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+          )}
+          <h1 className="text-lg font-semibold flex-1">MarginGap</h1>
+          {user && (
+            <div className="text-xs text-muted-foreground truncate max-w-[120px]">
+              {user.email}
             </div>
+          )}
+        </div>
+
+        {/* Search Bar - Mobile Stacked */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <div className="relative flex-1">
+            <div className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
+            <Input
+              type="text"
+              placeholder="Search for a product..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleScan()}
+              className="pl-10 sm:pl-11 pr-10"
+            />
+            {query && (
+              <button
+                onClick={() => setQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-accent transition-colors"
+                aria-label="Clear search"
+              >
+                <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+            {import.meta.env.DEV && !query && (
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-mono hidden sm:block">
+                ⌘K
+              </div>
+            )}
+          </div>
+
+          {/* Desktop: Location + Scan */}
+          <div className="hidden sm:flex items-center gap-3 flex-shrink-0">
             {/* Location indicator - compact, read-only in TopBar */}
             <div className="flex items-center gap-1.5 px-3 py-1.5 bg-surface2 border border-subtle rounded-lg text-sm">
               <svg className="w-3.5 h-3.5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -73,35 +112,57 @@ export function TopBar() {
               )}
             </Button>
           </div>
-          <div className="flex items-center gap-2">
-            {import.meta.env.DEV && (
-              <Button variant="ghost" onClick={() => navigate('/pricing')} size="sm">
-                Pricing
-              </Button>
-            )}
-            {user ? (
-              <>
-                {!import.meta.env.DEV && (
-                  <Button variant="ghost" onClick={() => navigate('/pricing')}>
-                    Pricing
-                  </Button>
-                )}
-                <div className="text-sm text-muted-foreground">{user.email}</div>
-                <Button variant="outline" size="sm" onClick={signOut}>
-                  Sign Out
-                </Button>
-              </>
+
+          {/* Mobile: Scan Button */}
+          <Button
+            onClick={handleScan}
+            disabled={loading || !query.trim()}
+            size="md"
+            className="sm:hidden w-full"
+          >
+            {loading ? (
+              <span className="flex items-center gap-2">
+                <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Scanning...
+              </span>
             ) : (
-              <>
-                <Button variant="ghost" onClick={() => navigate('/login')}>
-                  Sign In
-                </Button>
-                <Button onClick={() => navigate('/signup')}>
-                  Sign Up
-                </Button>
-              </>
+              'Scan'
             )}
-          </div>
+          </Button>
+        </div>
+
+        {/* Desktop: Auth Actions */}
+        <div className="hidden lg:flex items-center gap-2 mt-3 lg:mt-0 lg:absolute lg:top-3 lg:right-6">
+          {import.meta.env.DEV && (
+            <Button variant="ghost" onClick={() => navigate('/pricing')} size="sm">
+              Pricing
+            </Button>
+          )}
+          {user ? (
+            <>
+              {!import.meta.env.DEV && (
+                <Button variant="ghost" onClick={() => navigate('/pricing')} size="sm">
+                  Pricing
+                </Button>
+              )}
+              <div className="text-sm text-muted-foreground">{user.email}</div>
+              <Button variant="outline" size="sm" onClick={signOut}>
+                Sign Out
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="ghost" onClick={() => navigate('/login')} size="sm">
+                Sign In
+              </Button>
+              <Button onClick={() => navigate('/signup')} size="sm">
+                Sign Up
+              </Button>
+            </>
+          )}
         </div>
       </div>
     </div>

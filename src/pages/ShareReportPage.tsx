@@ -84,7 +84,7 @@ export function ShareReportPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen p-8">
+      <div className="min-h-screen p-3 sm:p-6 lg:p-8 overflow-x-hidden">
         <div className="max-w-7xl mx-auto space-y-6">
           <Skeleton className="h-32 w-full" />
           <Skeleton className="h-96 w-full" />
@@ -95,7 +95,7 @@ export function ShareReportPage() {
 
   if (error || !scanResult) {
     return (
-      <div className="min-h-screen p-8">
+      <div className="min-h-screen p-3 sm:p-6 lg:p-8 overflow-x-hidden">
         <div className="max-w-7xl mx-auto">
           <Card>
             <CardContent className="p-6">

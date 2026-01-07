@@ -136,7 +136,7 @@ export function LocationSwitcher({
       </Button>
 
       {isOpen && (
-        <div className="absolute top-full mt-2 right-0 bg-surface border border-subtle rounded-lg shadow-premium-lg z-50 w-[280px] overflow-hidden">
+        <div className="absolute top-full mt-2 right-0 sm:right-0 bg-surface border border-subtle rounded-lg shadow-premium-lg z-50 w-[calc(100vw-2rem)] sm:w-[280px] max-w-[280px] overflow-hidden">
           {/* Input */}
           <div className="p-2 border-b border-subtle">
             <input

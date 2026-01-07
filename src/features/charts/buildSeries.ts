@@ -1,6 +1,6 @@
 import type { PriceTimeSeriesPoint, Timeframe } from '@/lib/types'
-import { getTimeframeDays } from '@/lib/utils'
-import { subDays, parseISO, isAfter } from 'date-fns'
+import { filterPointsByTimeframe } from '@/utils/timeframe'
+import { parseISO, subDays } from 'date-fns'
 
 export interface ChartSeries {
   name: string
@@ -24,50 +24,36 @@ export function buildChartSeries(
   visibleLines: Set<string>,
   msrp?: number
 ): ChartSeries[] {
-  // Filter data by timeframe
-  let filteredData: PriceTimeSeriesPoint[]
+  // Filter data by timeframe using the utility function
+  // This ensures proper timestamp-based filtering and returns a new array reference
+  const filteredData = filterPointsByTimeframe(timeSeries, timeframe)
   
-  if (timeframe === 'all') {
-    // Show all available data
-    filteredData = timeSeries
-  } else {
-    const days = getTimeframeDays(timeframe)
-    if (days === null) {
-      // Fallback: show all if we can't determine days
-      filteredData = timeSeries
-    } else {
-      const now = new Date()
-      const cutoffDate = subDays(now, days)
-      
-      // Filter data by timeframe - include points on or after cutoff
-      filteredData = timeSeries.filter(point => {
-        try {
-          const pointDate = parseISO(point.date)
-          return isAfter(pointDate, cutoffDate) || pointDate.getTime() === cutoffDate.getTime()
-        } catch {
-          return false
-        }
-      })
-    }
-  }
-
   // If filtering removed all data but we have points, show the most recent point (fallback)
   // BUT: Only if we're not in 'all' mode (in 'all' mode, empty means truly no data)
+  let finalFilteredData: PriceTimeSeriesPoint[]
   if (filteredData.length === 0 && timeSeries.length > 0 && timeframe !== 'all') {
     const sorted = [...timeSeries].sort((a, b) => {
       try {
-        return parseISO(b.date).getTime() - parseISO(a.date).getTime()
+        const tsA = new Date(a.date).getTime()
+        const tsB = new Date(b.date).getTime()
+        return tsB - tsA // Most recent first
       } catch {
         return 0
       }
     })
-    filteredData = [sorted[0]]
+    if (sorted.length > 0) {
+      finalFilteredData = [sorted[0]]
+    } else {
+      finalFilteredData = []
+    }
+  } else {
+    finalFilteredData = filteredData
   }
 
   // Group by source type and region
   const seriesMap = new Map<string, PriceTimeSeriesPoint[]>()
   
-  filteredData.forEach(point => {
+  finalFilteredData.forEach(point => {
     const key = `${point.source_type}:${point.region_key}`
     if (!seriesMap.has(key)) {
       seriesMap.set(key, [])
@@ -81,9 +67,9 @@ export function buildChartSeries(
   // Add MSRP line if available
   if (msrp !== undefined && Number.isFinite(msrp) && msrp > 0) {
     const now = new Date()
-    // Use unique dates from filteredData or current date
-    const dates = filteredData.length > 0 
-      ? Array.from(new Set(filteredData.map(p => p.date))).sort()
+    // Use unique dates from finalFilteredData or current date
+    const dates = finalFilteredData.length > 0 
+      ? Array.from(new Set(finalFilteredData.map(p => p.date))).sort()
       : [now.toISOString().split('T')[0]]
     const msrpData = dates.map(date => {
       const dateObj = parseISO(date)
@@ -103,7 +89,7 @@ export function buildChartSeries(
   }
 
   // Add category benchmark
-  const categoryData = filteredData.filter(p => 
+  const categoryData = finalFilteredData.filter(p => 
     p.source_type === 'category_benchmark' && 
     Number.isFinite(p.avg_price) && 
     p.sample_size > 0
@@ -129,7 +115,7 @@ export function buildChartSeries(
   }
 
   // Add ebay_sold (sold comps - prioritize this)
-  const ebaySold = filteredData.filter(p => 
+  const ebaySold = finalFilteredData.filter(p => 
     p.source_type === 'ebay_sold' && Number.isFinite(p.avg_price) && p.sample_size > 0
   )
   if (ebaySold.length > 0) {
@@ -153,7 +139,7 @@ export function buildChartSeries(
   }
 
   // Add ebay_active (group by condition if available)
-  const ebayActiveNew = filteredData.filter(p => 
+  const ebayActiveNew = finalFilteredData.filter(p => 
     p.source_type === 'ebay_active' && 
     p.condition === 'new' &&
     Number.isFinite(p.avg_price) && 
@@ -179,7 +165,7 @@ export function buildChartSeries(
     }
   }
 
-  const ebayActiveUsed = filteredData.filter(p => 
+  const ebayActiveUsed = finalFilteredData.filter(p => 
     p.source_type === 'ebay_active' && 
     (p.condition === 'used' || !p.condition) &&
     Number.isFinite(p.avg_price) && 
@@ -207,7 +193,7 @@ export function buildChartSeries(
 
   // Fallback: if no condition-specific ebay_active, use all ebay_active
   if (ebayActiveNew.length === 0 && ebayActiveUsed.length === 0) {
-    const ebayActive = filteredData.filter(p => 
+    const ebayActive = finalFilteredData.filter(p => 
       p.source_type === 'ebay_active' && 
       Number.isFinite(p.avg_price) && 
       p.sample_size > 0
@@ -234,7 +220,7 @@ export function buildChartSeries(
   }
 
   // Add local used (facebook_marketplace as proxy for local used)
-  const localUsed = filteredData.filter(
+  const localUsed = finalFilteredData.filter(
     p => p.source_type === 'facebook_marketplace' &&
     (p.condition === 'used' || !p.condition) &&
     Number.isFinite(p.avg_price) &&
@@ -261,7 +247,7 @@ export function buildChartSeries(
   }
 
   // Add national used (ebay_active with US region and used condition)
-  const nationalUsed = filteredData.filter(
+  const nationalUsed = finalFilteredData.filter(
     p => p.source_type === 'ebay_active' &&
     p.region_key === 'US' && 
     (p.condition === 'used' || !p.condition) &&
@@ -289,7 +275,7 @@ export function buildChartSeries(
   }
 
   // Add shippable (mercari as proxy for shippable)
-  const shippable = filteredData.filter(
+  const shippable = finalFilteredData.filter(
     p => p.source_type === 'mercari' &&
     Number.isFinite(p.avg_price) &&
     p.sample_size > 0
@@ -315,7 +301,7 @@ export function buildChartSeries(
   }
 
   // Add new (amazon_new for new condition)
-  const newData = filteredData.filter(
+  const newData = finalFilteredData.filter(
     p => p.source_type === 'amazon_new' &&
     p.condition === 'new' &&
     Number.isFinite(p.avg_price) &&

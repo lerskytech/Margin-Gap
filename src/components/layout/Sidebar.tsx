@@ -13,7 +13,7 @@ export function Sidebar() {
   const { recentScans, selectScan } = useScanStore()
 
   return (
-    <div className="w-64 border-r border-subtle bg-surface/30 p-4 space-y-4">
+    <div className="w-full lg:w-64 border-r border-subtle bg-surface/30 p-3 sm:p-4 space-y-4">
       <Card variant="elevated">
         <CardHeader className="pb-4 border-b border-subtle">
           <CardTitle className="text-lg font-semibold">Watchlist</CardTitle>

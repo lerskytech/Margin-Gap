@@ -145,23 +145,24 @@ export function PriceChart({ timeframe, msrp, timeSeriesData }: PriceChartProps)
           Filtered: {filteredPointCount} points | Chart: {chartData.length} timestamps | Range: {timeframe}
         </div>
       )}
-      <div className="flex flex-wrap gap-2 mb-6">
+      {/* Legend/Toggles - Scrollable on mobile */}
+      <div className="flex gap-2 mb-4 sm:mb-6 overflow-x-auto -mx-2 px-2 pb-2 scrollbar-none">
         {safeSeries.map(s => {
           if (!s || !s.name) return null
           return (
-          <div key={s.name} className="relative group">
+          <div key={s.name} className="relative group flex-shrink-0">
             <Button
               variant={s.visible ? 'primary' : 'outline'}
               size="sm"
               onClick={() => toggleLine(s.name)}
-              className="text-xs flex items-center gap-1.5"
+              className="text-xs flex items-center gap-1.5 min-h-[40px] px-3"
               title={getLineDescription(s.name)}
             >
               <div 
-                className="w-2 h-2 rounded-full" 
+                className="w-2 h-2 rounded-full flex-shrink-0" 
                 style={{ backgroundColor: s.visible ? s.color : 'currentColor' }}
               />
-              {s.name}
+              <span className="whitespace-nowrap">{s.name}</span>
             </Button>
             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-20 pointer-events-none">
               <div className="bg-popover border border-border rounded-md px-2 py-1.5 text-xs text-popover-foreground shadow-lg whitespace-nowrap max-w-xs">
@@ -186,13 +187,13 @@ export function PriceChart({ timeframe, msrp, timeSeriesData }: PriceChartProps)
         )}
         {hasLimitedHistory && hasData && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-            <p className="text-xs text-muted-foreground/40 font-mono bg-background/80 px-2 py-1 rounded">
+            <p className="text-xs text-muted-foreground/70 font-mono bg-background/80 px-2 py-1 rounded">
               Limited history — scan again to build timeline
             </p>
           </div>
         )}
         {hasData ? (
-          <ResponsiveContainer width="100%" height={400}>
+          <ResponsiveContainer width="100%" height={320} className="sm:h-[420px] lg:h-[500px]">
         <LineChart data={baselineData}>
           <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
           <XAxis 
@@ -200,7 +201,8 @@ export function PriceChart({ timeframe, msrp, timeSeriesData }: PriceChartProps)
             type="number"
             scale="time"
             domain={['dataMin', 'dataMax']}
-            tick={{ fontSize: 12 }}
+            tick={{ fontSize: 11 }}
+            interval="preserveStartEnd"
             tickFormatter={(value) => {
               try {
                 return new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
@@ -210,7 +212,8 @@ export function PriceChart({ timeframe, msrp, timeSeriesData }: PriceChartProps)
             }}
           />
           <YAxis 
-            tick={{ fontSize: 12 }}
+            tick={{ fontSize: 11 }}
+            width={60}
             tickFormatter={(value) => formatCurrency(value)}
           />
           <Tooltip
@@ -225,6 +228,13 @@ export function PriceChart({ timeframe, msrp, timeSeriesData }: PriceChartProps)
               } catch {
                 return String(label)
               }
+            }}
+            contentStyle={{
+              backgroundColor: 'hsl(var(--surface))',
+              border: '1px solid hsl(var(--border))',
+              borderRadius: '0.5rem',
+              padding: '0.5rem',
+              maxWidth: 'calc(100vw - 2rem)',
             }}
           />
           <Legend 
@@ -248,16 +258,16 @@ export function PriceChart({ timeframe, msrp, timeSeriesData }: PriceChartProps)
               dataKey={s.name}
               stroke={s.color}
               strokeWidth={2}
-              dot={{ r: 4 }}
-              activeDot={{ r: 6 }}
+              dot={{ r: 3 }}
+              activeDot={{ r: 5 }}
               name={s.name}
             />
           ))}
         </LineChart>
         </ResponsiveContainer>
         ) : (
-          <div className="w-full h-[400px] flex items-center justify-center border border-border rounded">
-            <div className="text-center text-muted-foreground">
+          <div className="w-full h-[320px] sm:h-[420px] lg:h-[500px] flex items-center justify-center border border-border rounded">
+            <div className="text-center text-muted-foreground px-4">
               <p className="text-sm">No chart data available</p>
             </div>
           </div>

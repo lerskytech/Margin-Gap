@@ -100,12 +100,12 @@ export function ActionsDropdown({
       </Button>
 
       {isOpen && (
-        <div className="absolute top-full mt-2 right-0 bg-surface border border-subtle rounded-lg shadow-premium-lg z-50 min-w-[200px] overflow-hidden">
+        <div className="absolute top-full mt-2 right-0 sm:right-0 bg-surface border border-subtle rounded-lg shadow-premium-lg z-50 min-w-[200px] max-w-[calc(100vw-2rem)] overflow-hidden">
           <div className="p-1">
             {/* Set Alert */}
             <button
               className={`w-full text-left px-3 py-2 hover:bg-accent rounded-md transition-colors text-sm flex items-center justify-between ${
-                setAlertDisabled ? 'opacity-50 cursor-not-allowed' : ''
+                setAlertDisabled ? 'opacity-70 cursor-not-allowed text-foreground/60' : ''
               }`}
               onClick={handleSetAlert}
               disabled={setAlertDisabled}
@@ -118,7 +118,7 @@ export function ActionsDropdown({
             {/* Export Data */}
             <button
               className={`w-full text-left px-3 py-2 hover:bg-accent rounded-md transition-colors text-sm flex items-center justify-between ${
-                exportDisabled ? 'opacity-50 cursor-not-allowed' : ''
+                exportDisabled ? 'opacity-70 cursor-not-allowed text-foreground/60' : ''
               }`}
               onClick={handleExportData}
               disabled={exportDisabled}
@@ -131,7 +131,7 @@ export function ActionsDropdown({
             {/* Share Report */}
             <button
               className={`w-full text-left px-3 py-2 hover:bg-accent rounded-md transition-colors text-sm flex items-center justify-between ${
-                shareDisabled ? 'opacity-50 cursor-not-allowed' : ''
+                shareDisabled ? 'opacity-70 cursor-not-allowed text-foreground/60' : ''
               }`}
               onClick={handleShareReport}
               disabled={shareDisabled}

@@ -16,7 +16,7 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
     return (
       <div
         ref={ref}
-        className={cn('rounded-xl text-foreground', variants[variant], className)}
+        className={cn('rounded-xl text-foreground overflow-x-hidden', variants[variant], className)}
         {...props}
       />
     )
@@ -30,7 +30,7 @@ export const CardHeader = forwardRef<HTMLDivElement, CardProps>(
     return (
       <div
         ref={ref}
-        className={cn('flex flex-col space-y-1.5 p-6 pb-4', className)}
+        className={cn('flex flex-col space-y-1.5 p-3 sm:p-5 lg:p-6 pb-3 sm:pb-4', className)}
         {...props}
       />
     )
@@ -58,7 +58,7 @@ export const CardContent = forwardRef<HTMLDivElement, CardProps>(
     return (
       <div
         ref={ref}
-        className={cn('p-6 pt-0', className)}
+        className={cn('p-3 sm:p-5 lg:p-6 pt-0', className)}
         {...props}
       />
     )

@@ -185,15 +185,15 @@ export function ProductIntelligencePanel({
   const referenceBaseline = safeVerdict.fair_value_range?.high || metrics.national_avg
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
+    <div className="space-y-4 sm:space-y-6 max-w-7xl mx-auto px-1 sm:px-0">
       {/* Product Context Header */}
       <ProductContextHeader scanResult={scanResult} isBaseline={isBaseline} />
       
       {/* Market Snapshot Header */}
-      <div className="flex items-center justify-between pb-6 border-b border-subtle">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">{isBaseline ? 'Market Overview' : query}</h1>
-          <div className="flex items-center gap-3 mt-2 text-sm text-muted-foreground">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 pb-4 sm:pb-6 border-b border-subtle">
+        <div className="flex-1 min-w-0">
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">{isBaseline ? 'Market Overview' : query}</h1>
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-1 sm:mt-2 text-xs sm:text-sm text-muted-foreground">
             {isBaseline ? (
               <span>Live price intelligence across popular consumer products</span>
             ) : (
@@ -206,13 +206,14 @@ export function ProductIntelligencePanel({
           </div>
         </div>
         {!isBaseline && (
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-shrink-0">
             {onAddToWatchlist && (
               <Button
                 variant={isInWatchlist ? 'outline' : 'primary'}
                 size="sm"
                 onClick={onAddToWatchlist}
                 disabled={isInWatchlist}
+                className="flex-1 sm:flex-initial"
               >
                 {isInWatchlist ? 'In Watchlist' : 'Add to Watchlist'}
               </Button>
@@ -222,10 +223,10 @@ export function ProductIntelligencePanel({
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  // This will be handled by parent component
                   const event = new CustomEvent('open-alert-modal', { detail: { query, region_key } })
                   window.dispatchEvent(event)
                 }}
+                className="flex-1 sm:flex-initial"
               >
                 Set Alert
               </Button>
@@ -236,26 +237,54 @@ export function ProductIntelligencePanel({
 
       {/* Chart Section - Primary Focus */}
       <Card variant="elevated">
-        <CardHeader className="pb-4 border-b border-subtle">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex-1">
-              <CardTitle className="text-xl font-semibold">
-                {isBaseline 
-                  ? 'Price Trends'
-                  : `Price Trends — ${query} (${region_key === 'US' ? 'National' : region_key})`}
-              </CardTitle>
-              <p className="text-sm text-muted-foreground mt-1.5">
+        <CardHeader className="pb-3 sm:pb-4 border-b border-subtle">
+          {/* Mobile: Stack header in two rows */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-start justify-between gap-2 sm:block">
+                <CardTitle className="text-lg sm:text-xl font-semibold">
+                  {isBaseline 
+                    ? 'Price Trends'
+                    : (
+                      <>
+                        <span className="hidden sm:inline">Price Trends — {query} ({region_key === 'US' ? 'National' : region_key})</span>
+                        <span className="sm:hidden">Price Trends</span>
+                      </>
+                    )}
+                </CardTitle>
+                {/* Mobile: Actions dropdown in title row */}
+                <div className="sm:hidden">
+                  <ActionsDropdown
+                    isBaseline={isBaseline}
+                    isAuthenticated={isAuthed}
+                    onSetAlert={onSetAlert || (() => {})}
+                    onExportData={onExportData || (() => {})}
+                    onShareReport={onShareReport || (() => {})}
+                  />
+                </div>
+              </div>
+              <p className="text-xs sm:text-sm text-muted-foreground mt-1 sm:mt-1.5">
                 {isBaseline 
                   ? 'Run a scan to generate real-time price trends'
                   : 'Trendline fills in as you scan over time'}
               </p>
+              {!isBaseline && timeSeriesData.length > 0 && (() => {
+                const uniqueDates = new Set(timeSeriesData.map(p => p.date)).size
+                const needsMoreData = uniqueDates < 2 && timeframe !== 'all'
+                return needsMoreData ? (
+                  <p className="text-xs text-muted-foreground/70 mt-1.5 italic">
+                    Timeframe won't change until we have more than one scan saved for this product.
+                  </p>
+                ) : null
+              })()}
               {import.meta.env.DEV && !isBaseline && timeSeriesData.length > 0 && (
                 <p className="text-xs text-muted-foreground/60 mt-1 font-mono">
                   Range: {timeframe} | Points: {timeSeriesData.length}
                 </p>
               )}
             </div>
-            <div className="flex items-center gap-2">
+            {/* Desktop: Controls row */}
+            <div className="hidden sm:flex items-center gap-2 flex-shrink-0">
               <LocationSwitcher
                 value={locationMode}
                 onChange={setMode}
@@ -285,6 +314,29 @@ export function ProductIntelligencePanel({
               />
             </div>
           </div>
+          {/* Mobile: Controls row 2 */}
+          <div className="flex sm:hidden items-center gap-2 overflow-x-auto -mx-2 px-2 pb-1 scrollbar-none">
+            <LocationSwitcher
+              value={locationMode}
+              onChange={setMode}
+              recent={recentLocations}
+              onRemoveRecent={removeRecent}
+              onSetDefault={(mode) => setDefault(mode, undefined)}
+            />
+            <div className="flex gap-1.5 bg-surface2 p-1 rounded-lg border border-subtle flex-shrink-0">
+              {timeframes.map(tf => (
+                <Button
+                  key={tf}
+                  variant={timeframe === tf ? 'primary' : 'ghost'}
+                  size="sm"
+                  onClick={() => onTimeframeChange(tf)}
+                  className={timeframe === tf ? 'shadow-sm' : ''}
+                >
+                  {tf}
+                </Button>
+              ))}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <TrendSummary
@@ -293,7 +345,7 @@ export function ProductIntelligencePanel({
             shippableAvg={metrics.shippable_avg}
           />
           <PriceChart
-            key={`${scanResult.scan_id}-${timeframe}`}
+            key={`chart-${scanResult.scan_id}-${timeframe}-${locationMode.kind === 'national' ? 'national' : locationMode.kind === 'zip' ? locationMode.zip : `${locationMode.city}-${locationMode.region}`}`}
             timeframe={timeframe}
             msrp={referenceBaseline}
             timeSeriesData={timeSeriesData}
@@ -303,14 +355,14 @@ export function ProductIntelligencePanel({
 
       {/* Market Snapshot - Compact Secondary */}
       <Card variant="elevated">
-        <CardHeader className="pb-4 border-b border-subtle">
-          <CardTitle className="text-xl font-semibold">Market Snapshot</CardTitle>
+        <CardHeader className="pb-3 sm:pb-4 border-b border-subtle">
+          <CardTitle className="text-lg sm:text-xl font-semibold">Market Snapshot</CardTitle>
         </CardHeader>
-        <CardContent className="pt-6">
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-8">
-            <div className="col-span-2 md:col-span-1">
-              <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2 font-medium">Fair Value Range</div>
-              <div className="text-2xl font-semibold tabular-nums">
+        <CardContent className="pt-4 sm:pt-6">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
+            <div className="col-span-2 sm:col-span-1">
+              <div className="text-xs sm:text-xs uppercase tracking-wide text-muted-foreground mb-1 sm:mb-2 font-medium">Fair Value Range</div>
+              <div className="text-lg sm:text-xl lg:text-2xl font-semibold tabular-nums">
                 {safeVerdict.fair_value_range?.low !== undefined && safeVerdict.fair_value_range?.high !== undefined
                   ? `${formatMoney(safeVerdict.fair_value_range.low)} - ${formatMoney(safeVerdict.fair_value_range.high)}`
                   : 'Data unavailable'}
@@ -318,21 +370,21 @@ export function ProductIntelligencePanel({
             </div>
             {metrics.national_avg && (
               <div>
-                <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2 font-medium">National Used Avg</div>
-                <div className="text-2xl font-semibold tabular-nums">{formatMoney(metrics.national_avg)}</div>
+                <div className="text-xs sm:text-xs uppercase tracking-wide text-muted-foreground mb-1 sm:mb-2 font-medium">National Used Avg</div>
+                <div className="text-lg sm:text-xl lg:text-2xl font-semibold tabular-nums">{formatMoney(metrics.national_avg)}</div>
               </div>
             )}
             {metrics.shippable_avg && (
               <div>
-                <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2 font-medium">Shippable Avg</div>
-                <div className="text-2xl font-semibold tabular-nums">{formatMoney(metrics.shippable_avg)}</div>
+                <div className="text-xs sm:text-xs uppercase tracking-wide text-muted-foreground mb-1 sm:mb-2 font-medium">Shippable Avg</div>
+                <div className="text-lg sm:text-xl lg:text-2xl font-semibold tabular-nums">{formatMoney(metrics.shippable_avg)}</div>
               </div>
             )}
             {spread && (
               <div>
-                <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2 font-medium">Spread</div>
+                <div className="text-xs sm:text-xs uppercase tracking-wide text-muted-foreground mb-1 sm:mb-2 font-medium">Spread</div>
                 <div className="flex items-baseline gap-2">
-                  <div className="text-2xl font-semibold tabular-nums">{formatPct(spread.pct)}</div>
+                  <div className="text-lg sm:text-xl lg:text-2xl font-semibold tabular-nums">{formatPct(spread.pct)}</div>
                   <span className="text-xs text-muted-foreground">
                     ({formatMoney(Math.abs(spread.diff))})
                   </span>
@@ -340,8 +392,8 @@ export function ProductIntelligencePanel({
               </div>
             )}
             <div>
-              <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2 font-medium">Status</div>
-              <div className="flex flex-col gap-2">
+              <div className="text-xs sm:text-xs uppercase tracking-wide text-muted-foreground mb-1 sm:mb-2 font-medium">Status</div>
+              <div className="flex flex-col gap-1 sm:gap-2">
                 <Badge variant={verdictBadgeVariant} className="w-fit">{verdictLabel}</Badge>
                 <span className="text-xs text-muted-foreground">
                   {getStatusRationale(safeVerdict.status, safeVerdict.delta_percent)}
@@ -350,9 +402,9 @@ export function ProductIntelligencePanel({
             </div>
             {safeVerdict.confidence_score !== undefined && safeVerdict.confidence_score > 0 && (
               <div>
-                <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2 font-medium">Confidence</div>
-                <div className="space-y-2">
-                  <div className="text-2xl font-semibold tabular-nums">{(safeVerdict.confidence_score * 100).toFixed(0)}%</div>
+                <div className="text-xs sm:text-xs uppercase tracking-wide text-muted-foreground mb-1 sm:mb-2 font-medium">Confidence</div>
+                <div className="space-y-1 sm:space-y-2">
+                  <div className="text-lg sm:text-xl lg:text-2xl font-semibold tabular-nums">{(safeVerdict.confidence_score * 100).toFixed(0)}%</div>
                   <div className="w-full bg-secondary rounded-full h-2 overflow-hidden">
                     <div
                       className="h-full rounded-full bg-gradient-to-r from-primary to-primary/80 transition-all duration-500"
@@ -393,25 +445,25 @@ export function ProductIntelligencePanel({
         <Card className="rounded-xl border border-border shadow-sm">
           <CardContent className="p-6">
             <h3 className="text-lg font-semibold mb-4">How This Works</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 sm:gap-4">
               <div>
-                <div className="text-2xl font-bold text-primary mb-2">1</div>
-                <h4 className="font-medium mb-1">Search any product</h4>
-                <p className="text-sm text-muted-foreground">
+                <div className="text-xl sm:text-2xl font-bold text-primary mb-1 sm:mb-2">1</div>
+                <h4 className="font-medium mb-1 text-sm sm:text-base">Search any product</h4>
+                <p className="text-xs sm:text-sm text-muted-foreground">
                   Enter a product name to scan across multiple marketplaces
                 </p>
               </div>
               <div>
-                <div className="text-2xl font-bold text-primary mb-2">2</div>
-                <h4 className="font-medium mb-1">We aggregate pricing data</h4>
-                <p className="text-sm text-muted-foreground">
+                <div className="text-xl sm:text-2xl font-bold text-primary mb-1 sm:mb-2">2</div>
+                <h4 className="font-medium mb-1 text-sm sm:text-base">We aggregate pricing data</h4>
+                <p className="text-xs sm:text-sm text-muted-foreground">
                   National and local pricing data from eBay, Facebook Marketplace, and more
                 </p>
               </div>
-              <div>
-                <div className="text-2xl font-bold text-primary mb-2">3</div>
-                <h4 className="font-medium mb-1">Track trends and fair value</h4>
-                <p className="text-sm text-muted-foreground">
+              <div className="col-span-2 sm:col-span-1">
+                <div className="text-xl sm:text-2xl font-bold text-primary mb-1 sm:mb-2">3</div>
+                <h4 className="font-medium mb-1 text-sm sm:text-base">Track trends and fair value</h4>
+                <p className="text-xs sm:text-sm text-muted-foreground">
                   Monitor price spreads, trends, and fair value ranges over time
                 </p>
               </div>
