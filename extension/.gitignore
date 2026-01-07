@@ -1,0 +1,16 @@
+# Extension build artifacts
+*.zip
+*.crx
+*.pem
+
+# Icons (if generated)
+icons/*.png
+!icons/README.md
+
+# Node modules (if using build tools)
+node_modules/
+
+# Environment
+.env
+.env.local
+

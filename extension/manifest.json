@@ -1,0 +1,56 @@
+{
+  "manifest_version": 3,
+  "name": "MarginGap Price Intel",
+  "version": "1.0.0",
+  "description": "Ultra-fast price intelligence overlay for resellers. Right-click any product to check market value.",
+  "permissions": [
+    "contextMenus",
+    "activeTab",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://*.facebook.com/*",
+    "https://*.amazon.com/*",
+    "https://*.craigslist.org/*",
+    "https://*.supabase.co/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.facebook.com/*",
+        "https://*.amazon.com/*",
+        "https://*.craigslist.org/*"
+      ],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["popup.html", "popup.js", "popup.css"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "action": {
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "MarginGap Price Intel",
+    "default_popup": "options.html"
+  },
+  "options_page": "options.html",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
+

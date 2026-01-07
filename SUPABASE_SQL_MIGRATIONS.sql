@@ -1,0 +1,424 @@
+-- ============================================
+-- SUPABASE MIGRATIONS - COMPLETE SQL
+-- ============================================
+-- Run these migrations in order via Supabase CLI:
+--   supabase db push
+-- Or apply manually in Supabase Dashboard SQL Editor
+-- ============================================
+
+-- ============================================
+-- MIGRATION 1: Initial Schema
+-- ============================================
+-- File: supabase/migrations/20240101000000_initial_schema.sql
+
+-- Enable UUID extension
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- Profiles table (extends auth.users)
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  full_name TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Products table
+CREATE TABLE IF NOT EXISTS public.products (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT NOT NULL,
+  description TEXT,
+  category TEXT,
+  brand TEXT,
+  model TEXT,
+  msrp NUMERIC(10, 2),
+  canonical_name TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_products_canonical_name ON public.products(canonical_name);
+CREATE INDEX IF NOT EXISTS idx_products_category ON public.products(category);
+
+-- Scan credits table
+CREATE TABLE IF NOT EXISTS public.scan_credits (
+  user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  credits_remaining INTEGER NOT NULL DEFAULT 0,
+  plan_tier TEXT NOT NULL DEFAULT 'free' CHECK (plan_tier IN ('free', 'basic', 'pro', 'expert')),
+  reset_date DATE NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Scans table
+CREATE TABLE IF NOT EXISTS public.scans (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  product_id UUID NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
+  query TEXT NOT NULL,
+  region_key TEXT NOT NULL,
+  scanned_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_scans_user_id ON public.scans(user_id);
+CREATE INDEX IF NOT EXISTS idx_scans_product_id ON public.scans(product_id);
+CREATE INDEX IF NOT EXISTS idx_scans_scanned_at ON public.scans(scanned_at DESC);
+
+-- Price points table (time-series data)
+CREATE TABLE IF NOT EXISTS public.price_points (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  product_id UUID NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
+  source_type TEXT NOT NULL,
+  region_key TEXT NOT NULL,
+  date DATE NOT NULL,
+  avg_price NUMERIC(10, 2) NOT NULL,
+  min_price NUMERIC(10, 2) NOT NULL,
+  max_price NUMERIC(10, 2) NOT NULL,
+  median_price NUMERIC(10, 2) NOT NULL,
+  sample_size INTEGER NOT NULL DEFAULT 0,
+  condition TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(product_id, source_type, region_key, date, condition)
+);
+
+CREATE INDEX IF NOT EXISTS idx_price_points_product_id ON public.price_points(product_id);
+CREATE INDEX IF NOT EXISTS idx_price_points_date ON public.price_points(date DESC);
+CREATE INDEX IF NOT EXISTS idx_price_points_source_region ON public.price_points(source_type, region_key);
+
+-- Watchlist table
+CREATE TABLE IF NOT EXISTS public.watchlist (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  product_id UUID NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(user_id, product_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_watchlist_user_id ON public.watchlist(user_id);
+CREATE INDEX IF NOT EXISTS idx_watchlist_product_id ON public.watchlist(product_id);
+
+-- Saved searches table
+CREATE TABLE IF NOT EXISTS public.saved_searches (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  query TEXT NOT NULL,
+  region_key TEXT,
+  condition TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_saved_searches_user_id ON public.saved_searches(user_id);
+
+-- Function to update updated_at timestamp
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Triggers for updated_at
+CREATE TRIGGER update_profiles_updated_at BEFORE UPDATE ON public.profiles
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_products_updated_at BEFORE UPDATE ON public.products
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_scan_credits_updated_at BEFORE UPDATE ON public.scan_credits
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
+-- MIGRATION 2: Row Level Security Policies
+-- ============================================
+-- File: supabase/migrations/20240101000001_rls_policies.sql
+
+-- Enable Row Level Security
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.scan_credits ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.scans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.watchlist ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.saved_searches ENABLE ROW LEVEL SECURITY;
+
+-- Products and price_points are public (read-only for all authenticated users)
+ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.price_points ENABLE ROW LEVEL SECURITY;
+
+-- Profiles policies
+CREATE POLICY "Users can view their own profile"
+  ON public.profiles FOR SELECT
+  USING (auth.uid() = id);
+
+CREATE POLICY "Users can update their own profile"
+  ON public.profiles FOR UPDATE
+  USING (auth.uid() = id);
+
+-- Scan credits policies
+CREATE POLICY "Users can view their own credits"
+  ON public.scan_credits FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can update their own credits"
+  ON public.scan_credits FOR UPDATE
+  USING (auth.uid() = user_id);
+
+-- Scans policies
+CREATE POLICY "Users can view their own scans"
+  ON public.scans FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert their own scans"
+  ON public.scans FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+-- Watchlist policies
+CREATE POLICY "Users can view their own watchlist"
+  ON public.watchlist FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert into their own watchlist"
+  ON public.watchlist FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete from their own watchlist"
+  ON public.watchlist FOR DELETE
+  USING (auth.uid() = user_id);
+
+-- Saved searches policies
+CREATE POLICY "Users can view their own saved searches"
+  ON public.saved_searches FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert their own saved searches"
+  ON public.saved_searches FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete their own saved searches"
+  ON public.saved_searches FOR DELETE
+  USING (auth.uid() = user_id);
+
+-- Products policies (public read for authenticated users)
+CREATE POLICY "Authenticated users can view products"
+  ON public.products FOR SELECT
+  USING (auth.role() = 'authenticated');
+
+CREATE POLICY "Authenticated users can insert products"
+  ON public.products FOR INSERT
+  WITH CHECK (auth.role() = 'authenticated');
+
+-- Price points policies (public read for authenticated users)
+CREATE POLICY "Authenticated users can view price points"
+  ON public.price_points FOR SELECT
+  USING (auth.role() = 'authenticated');
+
+CREATE POLICY "Authenticated users can insert price points"
+  ON public.price_points FOR INSERT
+  WITH CHECK (auth.role() = 'authenticated');
+
+-- ============================================
+-- MIGRATION 3: Handle New User Trigger
+-- ============================================
+-- File: supabase/migrations/20240101000002_handle_new_user.sql
+
+-- Function to handle new user creation
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, full_name)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    COALESCE(NEW.raw_user_meta_data->>'full_name', NULL)
+  );
+  
+  -- Initialize scan credits (free tier: 10 credits per month)
+  INSERT INTO public.scan_credits (user_id, credits_remaining, plan_tier, reset_date)
+  VALUES (
+    NEW.id,
+    10,
+    'free',
+    (CURRENT_DATE + INTERVAL '1 month')::DATE
+  );
+  
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Trigger to create profile and credits when user signs up
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- ============================================
+-- MIGRATION 4: Accounts + Alerts Foundation
+-- ============================================
+-- File: supabase/migrations/20240102000000_accounts_alerts.sql
+
+-- Enable pgcrypto extension for gen_random_uuid()
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- Update profiles table to include new fields
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS display_name TEXT,
+  ADD COLUMN IF NOT EXISTS phone TEXT,
+  ADD COLUMN IF NOT EXISTS avatar_url TEXT,
+  ADD COLUMN IF NOT EXISTS email_opt_in BOOLEAN NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS sms_opt_in BOOLEAN NOT NULL DEFAULT false;
+
+-- Migrate full_name to display_name if it exists
+UPDATE public.profiles
+SET display_name = full_name
+WHERE display_name IS NULL AND full_name IS NOT NULL;
+
+-- Watchlist folders table
+CREATE TABLE IF NOT EXISTS public.watchlist_folders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_watchlist_folders_user_id ON public.watchlist_folders(user_id);
+
+-- Watchlist items table (replaces/enhances existing watchlist table)
+CREATE TABLE IF NOT EXISTS public.watchlist_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  folder_id UUID REFERENCES public.watchlist_folders(id) ON DELETE SET NULL,
+  product_key TEXT NOT NULL,
+  title TEXT NOT NULL,
+  image_url TEXT,
+  region_key TEXT NOT NULL DEFAULT 'US',
+  last_price NUMERIC(10, 2),
+  last_change_pct NUMERIC(5, 2),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(user_id, product_key, region_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_watchlist_items_user_id ON public.watchlist_items(user_id);
+CREATE INDEX IF NOT EXISTS idx_watchlist_items_folder_id ON public.watchlist_items(folder_id);
+CREATE INDEX IF NOT EXISTS idx_watchlist_items_product_key ON public.watchlist_items(product_key);
+
+-- Alert rules table
+CREATE TABLE IF NOT EXISTS public.alert_rules (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  watchlist_item_id UUID NOT NULL REFERENCES public.watchlist_items(id) ON DELETE CASCADE,
+  rule_type TEXT NOT NULL CHECK (rule_type IN ('PRICE_BELOW', 'PRICE_ABOVE', 'PCT_DROP', 'PCT_RISE')),
+  threshold NUMERIC(10, 2) NOT NULL,
+  window_days INTEGER NOT NULL DEFAULT 30,
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  cooldown_hours INTEGER NOT NULL DEFAULT 24,
+  last_triggered_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_alert_rules_user_id ON public.alert_rules(user_id);
+CREATE INDEX IF NOT EXISTS idx_alert_rules_watchlist_item_id ON public.alert_rules(watchlist_item_id);
+CREATE INDEX IF NOT EXISTS idx_alert_rules_enabled ON public.alert_rules(enabled) WHERE enabled = true;
+
+-- Alert events table (audit trail)
+CREATE TABLE IF NOT EXISTS public.alert_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  rule_id UUID NOT NULL REFERENCES public.alert_rules(id) ON DELETE CASCADE,
+  triggered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  payload JSONB NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_alert_events_user_id ON public.alert_events(user_id);
+CREATE INDEX IF NOT EXISTS idx_alert_events_rule_id ON public.alert_events(rule_id);
+CREATE INDEX IF NOT EXISTS idx_alert_events_triggered_at ON public.alert_events(triggered_at DESC);
+
+-- Enable RLS on all tables
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.watchlist_folders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.watchlist_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.alert_rules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.alert_events ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policies for profiles
+DROP POLICY IF EXISTS "Users can view own profile" ON public.profiles;
+CREATE POLICY "Users can view own profile" ON public.profiles
+  FOR SELECT USING (auth.uid() = id);
+
+DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
+CREATE POLICY "Users can update own profile" ON public.profiles
+  FOR UPDATE USING (auth.uid() = id);
+
+-- RLS Policies for watchlist_folders
+DROP POLICY IF EXISTS "Users can manage own folders" ON public.watchlist_folders;
+CREATE POLICY "Users can manage own folders" ON public.watchlist_folders
+  FOR ALL USING (auth.uid() = user_id);
+
+-- RLS Policies for watchlist_items
+DROP POLICY IF EXISTS "Users can manage own watchlist items" ON public.watchlist_items;
+CREATE POLICY "Users can manage own watchlist items" ON public.watchlist_items
+  FOR ALL USING (auth.uid() = user_id);
+
+-- RLS Policies for alert_rules
+DROP POLICY IF EXISTS "Users can manage own alert rules" ON public.alert_rules;
+CREATE POLICY "Users can manage own alert rules" ON public.alert_rules
+  FOR ALL USING (auth.uid() = user_id);
+
+-- RLS Policies for alert_events
+DROP POLICY IF EXISTS "Users can view own alert events" ON public.alert_events;
+CREATE POLICY "Users can view own alert events" ON public.alert_events
+  FOR SELECT USING (auth.uid() = user_id);
+
+-- Update handle_new_user function to include new profile fields
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.profiles (
+    id,
+    email,
+    display_name,
+    avatar_url,
+    email_opt_in,
+    sms_opt_in
+  )
+  VALUES (
+    NEW.id,
+    NEW.email,
+    COALESCE(
+      NEW.raw_user_meta_data->>'full_name',
+      NEW.raw_user_meta_data->>'name',
+      split_part(NEW.email, '@', 1)
+    ),
+    NEW.raw_user_meta_data->>'avatar_url',
+    true,
+    false
+  )
+  ON CONFLICT (id) DO NOTHING;
+  
+  -- Initialize scan credits (free tier: 10 credits per month)
+  INSERT INTO public.scan_credits (user_id, credits_remaining, plan_tier, reset_date)
+  VALUES (
+    NEW.id,
+    10,
+    'free',
+    (CURRENT_DATE + INTERVAL '1 month')::DATE
+  )
+  ON CONFLICT (user_id) DO NOTHING;
+  
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to update updated_at timestamp
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger for profiles updated_at
+DROP TRIGGER IF EXISTS update_profiles_updated_at ON public.profiles;
+CREATE TRIGGER update_profiles_updated_at
+  BEFORE UPDATE ON public.profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
