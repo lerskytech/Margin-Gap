@@ -2,7 +2,10 @@
 
 ## ✅ Deployment Complete
 
-Your app is deployed at: **https://margingap.com** (custom domain)
+Your app is deployed at:
+- **https://margingap.com** (primary domain)
+- **https://www.margingap.com** (www subdomain)
+- **https://margin-gap-9cd1.vercel.app** (Vercel default)
 
 Vercel Dashboard: https://vercel.com/skyler-kellys-projects/margingap
 
@@ -18,6 +21,8 @@ Add to **Additional Redirect URLs:**
 ```
 https://margingap.com/auth/callback
 https://margingap.com
+https://www.margingap.com/auth/callback
+https://www.margingap.com
 ```
 
 Update **Site URL** to:
@@ -36,11 +41,13 @@ Go to: **Google Cloud Console → APIs & Services → Credentials → Your OAuth
 Add to **Authorized JavaScript origins:**
 ```
 https://margingap.com
+https://www.margingap.com
 ```
 
 Add to **Authorized redirect URIs:**
 ```
 https://margingap.com/auth/callback
+https://www.margingap.com/auth/callback
 ```
 
 Click **Save**
