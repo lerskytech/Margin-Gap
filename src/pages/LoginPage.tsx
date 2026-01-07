@@ -1,13 +1,22 @@
-import { useState, FormEvent } from 'react'
+import { useState, FormEvent, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { Card, CardContent, CardHeader, CardTitle } from '@/ui/Card'
 import { Button } from '@/ui/Button'
 import { Input } from '@/ui/Input'
+import { getEnvStatus } from '@/utils/envDebug'
 
 export function LoginPage() {
   const navigate = useNavigate()
   const { signIn, signInWithGoogle, loading, isEnabled, lastAuthError, clearAuthError } = useAuthStore()
+  const [envDebug, setEnvDebug] = useState<ReturnType<typeof getEnvStatus> | null>(null)
+
+  useEffect(() => {
+    // Debug env vars in dev mode
+    if (import.meta.env.DEV) {
+      setEnvDebug(getEnvStatus())
+    }
+  }, [])
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -128,9 +137,23 @@ export function LoginPage() {
               </>
             )}
             {!isEnabled && (
-              <p className="text-xs text-muted-foreground text-center mt-2">
-                Auth is disabled — configure Supabase env vars to enable sign-in.
-              </p>
+              <div className="space-y-2 mt-2">
+                <p className="text-xs text-muted-foreground text-center">
+                  Auth is disabled — configure Supabase env vars to enable sign-in.
+                </p>
+                {import.meta.env.DEV && envDebug && (
+                  <details className="text-xs bg-muted p-2 rounded">
+                    <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                      Debug Info (Dev Only)
+                    </summary>
+                    <div className="mt-2 space-y-1 font-mono text-[10px]">
+                      <div>VITE_SUPABASE_URL: {envDebug.urlPresent ? '✅' : '❌'} {envDebug.urlValue || '(empty)'}</div>
+                      <div>VITE_SUPABASE_ANON_KEY: {envDebug.keyPresent ? '✅' : '❌'} {envDebug.keyPreview || '(empty)'}</div>
+                      <div>All VITE_ vars: {envDebug.allViteVars.join(', ') || '(none)'}</div>
+                    </div>
+                  </details>
+                )}
+              </div>
             )}
             <div className="text-center text-sm">
               Don't have an account?{' '}
