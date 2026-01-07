@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import type { ScanResult, RegionKey } from '@/lib/types'
+import type { LocationMode } from '@/lib/location'
+import { locationToRegionKey } from '@/lib/location'
 import { scanProduct } from '@/features/scans/scanService'
 import { devError } from '@/lib/devLog'
 import { makeScanKey } from '@/utils/scanKey'
@@ -24,8 +26,10 @@ interface ScanState {
   scanCache: Map<string, ScanResult> // Full scan results keyed by scan_id
   scanHistory: ScanResult[] // All scans in chronological order (for chart timeline)
   lastError: Error | null
+  currentLocation: LocationMode | null // Current location for scans
   setRegionKey: (key: RegionKey) => void
-  performScan: (query: string, userId?: string) => Promise<void>
+  setLocation: (location: LocationMode) => void
+  performScan: (query: string, userId?: string, location?: LocationMode) => Promise<void>
   selectScan: (scanId: string) => void
   clearScan: () => void
   loadRecentScans: () => void
@@ -42,8 +46,14 @@ export const useScanStore = create<ScanState>((set, get) => ({
   scanCache: new Map<string, ScanResult>(),
   scanHistory: [], // Full history for chart timeline (max 200)
   lastError: null,
+  currentLocation: null,
   setRegionKey: (key) => set({ regionKey: key }),
-  performScan: async (query, userId) => {
+  setLocation: (location) => {
+    // Update regionKey based on location for backward compatibility
+    const regionKey = locationToRegionKey(location)
+    set({ currentLocation: location, regionKey })
+  },
+  performScan: async (query, userId, location) => {
     if (!query || !query.trim()) {
       set({ error: 'Query cannot be empty', loading: false })
       return
@@ -51,10 +61,15 @@ export const useScanStore = create<ScanState>((set, get) => ({
 
     set({ loading: true, error: null, lastError: null })
     try {
+      // Use provided location or current location
+      const scanLocation = location || get().currentLocation
+      const regionKey = scanLocation ? locationToRegionKey(scanLocation) : get().regionKey
+      
       const result = await scanProduct({
         query: query.trim(),
-        regionKey: get().regionKey,
+        regionKey,
         userId,
+        location: scanLocation || undefined,
       })
       
       // Validate result shape

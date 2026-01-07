@@ -131,9 +131,20 @@ export function PriceChart({ timeframe, msrp, timeSeriesData }: PriceChartProps)
   const hasLimitedHistory = !Array.isArray(chartData) || chartData.length < 2
   const hasData = Array.isArray(chartData) && chartData.length > 0
   const safeSeries = Array.isArray(series) ? series : []
+  
+  // Dev indicator: show filtered point count
+  const filteredPointCount = useMemo(() => {
+    if (!Array.isArray(series) || series.length === 0) return 0
+    return series.reduce((sum, s) => sum + (s.data?.length || 0), 0)
+  }, [series])
 
   return (
     <div>
+      {import.meta.env.DEV && hasData && (
+        <div className="mb-2 text-xs text-muted-foreground/60 font-mono">
+          Filtered: {filteredPointCount} points | Chart: {chartData.length} timestamps | Range: {timeframe}
+        </div>
+      )}
       <div className="flex flex-wrap gap-2 mb-6">
         {safeSeries.map(s => {
           if (!s || !s.name) return null

@@ -5,6 +5,7 @@ import { scanMercari } from '@/providers/mercari'
 import { scanAmazonNew } from '@/providers/amazonNew'
 import { supabase } from '@/services/supabase'
 import type { Product, ProviderResponse, ScanResult, PriceAggregate, RegionKey, Listing } from '@/lib/types'
+import type { LocationMode } from '@/lib/location'
 import { calculateVerdict } from '../analysis/verdict'
 import { isAccessoryOrBundle } from '@/lib/utils'
 
@@ -12,17 +13,19 @@ export interface ScanOptions {
   query: string
   regionKey: RegionKey
   userId?: string
+  location?: LocationMode
 }
 
 export async function scanProduct(options: ScanOptions): Promise<ScanResult> {
-  const { query, regionKey, userId } = options
+  const { query, regionKey, userId, location } = options
 
   // Call all providers in parallel (mock for now)
+  // Pass location info to providers that support local filtering
   const providerPromises: Promise<ProviderResponse>[] = [
-    scanEbay(query, regionKey),
-    scanFacebookMarketplace(query, regionKey),
-    scanOfferUp(query, regionKey),
-    scanMercari(query, regionKey),
+    scanEbay(query, regionKey, location),
+    scanFacebookMarketplace(query, regionKey, location),
+    scanOfferUp(query, regionKey, location),
+    scanMercari(query, regionKey, location),
   ]
 
   // Only scan Amazon New for new condition queries

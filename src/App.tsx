@@ -2,6 +2,7 @@ import { useEffect, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { ErrorBoundary } from './components/system/ErrorBoundary'
 import { useAuthStore } from './store/authStore'
+import { useLocationStore } from './store/locationStore'
 import { AppLayout } from './components/layout/AppLayout'
 import { DashboardPage } from './pages/DashboardPage'
 import { LoginPage } from './pages/LoginPage'
@@ -25,11 +26,17 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function App() {
-  const { initialize } = useAuthStore()
+  const { initialize: initAuth, user } = useAuthStore()
+  const { initialize: initLocation } = useLocationStore()
 
   useEffect(() => {
-    initialize()
-  }, [initialize])
+    initAuth()
+  }, [initAuth])
+  
+  // Initialize location store after auth is ready
+  useEffect(() => {
+    initLocation(user?.id)
+  }, [initLocation, user?.id])
 
   return (
     <BrowserRouter>

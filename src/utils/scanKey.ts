@@ -1,17 +1,20 @@
 // Generate stable scan key for deduplication
 import type { ScanResult } from '@/lib/types'
+import type { LocationMode } from '@/lib/location'
+import { getLocationKey } from '@/lib/location'
 
 export interface ScanKey {
   normalizedQuery: string
   scope: string
   sources: string
+  location?: string
 }
 
 /**
  * Creates a stable key from scan parameters for deduplication
- * Same query + scope + sources = same key
+ * Same query + scope + sources + location = same key
  */
-export function makeScanKey(scan: ScanResult): string {
+export function makeScanKey(scan: ScanResult, location?: LocationMode): string {
   // Normalize query (lowercase, trim, remove extra spaces)
   const normalizedQuery = (scan.query || '').toLowerCase().trim().replace(/\s+/g, ' ')
   
@@ -25,7 +28,24 @@ export function makeScanKey(scan: ScanResult): string {
     .sort()
     .join(',')
   
+  // Include location in key if provided
+  const locationKey = location ? getLocationKey(location) : 'national'
+  
   // Create stable key
+  return `${normalizedQuery}|${scope}|${sources}|${locationKey}`
+}
+
+/**
+ * Creates a stable key from scan parameters (without location for backward compat)
+ */
+export function makeScanKeySimple(scan: ScanResult): string {
+  const normalizedQuery = (scan.query || '').toLowerCase().trim().replace(/\s+/g, ' ')
+  const scope = scan.region_key || 'US'
+  const sources = (scan.aggregates || [])
+    .map(agg => agg.source_type || 'unknown')
+    .filter((v, i, arr) => arr.indexOf(v) === i)
+    .sort()
+    .join(',')
   return `${normalizedQuery}|${scope}|${sources}`
 }
 

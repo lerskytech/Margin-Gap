@@ -24,21 +24,36 @@ export function buildChartSeries(
   visibleLines: Set<string>,
   msrp?: number
 ): ChartSeries[] {
-  const now = new Date()
-  const cutoffDate = subDays(now, getTimeframeDays(timeframe))
+  // Filter data by timeframe
+  let filteredData: PriceTimeSeriesPoint[]
   
-  // Filter data by timeframe - include points on or after cutoff
-  let filteredData = timeSeries.filter(point => {
-    try {
-      const pointDate = parseISO(point.date)
-      return isAfter(pointDate, cutoffDate) || pointDate.getTime() === cutoffDate.getTime()
-    } catch {
-      return false
+  if (timeframe === 'all') {
+    // Show all available data
+    filteredData = timeSeries
+  } else {
+    const days = getTimeframeDays(timeframe)
+    if (days === null) {
+      // Fallback: show all if we can't determine days
+      filteredData = timeSeries
+    } else {
+      const now = new Date()
+      const cutoffDate = subDays(now, days)
+      
+      // Filter data by timeframe - include points on or after cutoff
+      filteredData = timeSeries.filter(point => {
+        try {
+          const pointDate = parseISO(point.date)
+          return isAfter(pointDate, cutoffDate) || pointDate.getTime() === cutoffDate.getTime()
+        } catch {
+          return false
+        }
+      })
     }
-  })
+  }
 
   // If filtering removed all data but we have points, show the most recent point (fallback)
-  if (filteredData.length === 0 && timeSeries.length > 0) {
+  // BUT: Only if we're not in 'all' mode (in 'all' mode, empty means truly no data)
+  if (filteredData.length === 0 && timeSeries.length > 0 && timeframe !== 'all') {
     const sorted = [...timeSeries].sort((a, b) => {
       try {
         return parseISO(b.date).getTime() - parseISO(a.date).getTime()
@@ -65,6 +80,7 @@ export function buildChartSeries(
   
   // Add MSRP line if available
   if (msrp !== undefined && Number.isFinite(msrp) && msrp > 0) {
+    const now = new Date()
     // Use unique dates from filteredData or current date
     const dates = filteredData.length > 0 
       ? Array.from(new Set(filteredData.map(p => p.date))).sort()

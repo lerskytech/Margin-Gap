@@ -2,27 +2,23 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { useScanStore } from '@/store/scanStore'
-import { googlePlacesService } from '@/services/googlePlaces'
+import { useLocationStore } from '@/store/locationStore'
+import { getLocationShortLabel } from '@/lib/location'
 import { Button } from '@/ui/Button'
 import { Input } from '@/ui/Input'
 
 export function TopBar() {
   const navigate = useNavigate()
   const { user, signOut } = useAuthStore()
-  const { regionKey, setRegionKey, performScan, loading } = useScanStore()
+  const { performScan, loading, setLocation } = useScanStore()
+  const { mode: locationMode } = useLocationStore()
   const [query, setQuery] = useState('')
-  const [showLocationMenu, setShowLocationMenu] = useState(false)
-
-  const locations = googlePlacesService.getMockLocations()
 
   const handleScan = async () => {
     if (!query.trim()) return
-    await performScan(query.trim(), user?.id)
-  }
-
-  const handleLocationSelect = (loc: { region_key: string; zip?: string; city?: string; state?: string }) => {
-    setRegionKey(loc.region_key)
-    setShowLocationMenu(false)
+    // Sync location to scan store before scanning
+    setLocation(locationMode)
+    await performScan(query.trim(), user?.id, locationMode)
   }
 
   return (
@@ -50,41 +46,13 @@ export function TopBar() {
                 </div>
               )}
             </div>
-            <div className="relative">
-              <Button
-                variant="outline"
-                size="md"
-                onClick={() => setShowLocationMenu(!showLocationMenu)}
-                className="min-w-[120px] justify-between"
-              >
-                <span>{regionKey === 'US' ? 'National' : locations.find(l => l.region_key === regionKey)?.city || regionKey}</span>
-                <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </Button>
-              {showLocationMenu && (
-                <div className="absolute top-full mt-2 right-0 bg-surface border border-subtle rounded-lg shadow-premium-lg z-10 min-w-[220px] overflow-hidden">
-                  <div className="p-2">
-                    <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">National</div>
-                    <button
-                      className="w-full text-left px-3 py-2 hover:bg-accent rounded-md transition-colors text-sm"
-                      onClick={() => handleLocationSelect({ region_key: 'US', zip: undefined, city: undefined, state: undefined })}
-                    >
-                      United States
-                    </button>
-                    <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-2">Local Markets</div>
-                    {locations.map(loc => (
-                      <button
-                        key={loc.region_key}
-                        className="w-full text-left px-3 py-2 hover:bg-accent rounded-md transition-colors text-sm"
-                        onClick={() => handleLocationSelect(loc)}
-                      >
-                        {loc.city}, {loc.state}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
+            {/* Location indicator - compact, read-only in TopBar */}
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-surface2 border border-subtle rounded-lg text-sm">
+              <svg className="w-3.5 h-3.5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              <span className="text-muted-foreground">{getLocationShortLabel(locationMode)}</span>
             </div>
             <Button
               onClick={handleScan}

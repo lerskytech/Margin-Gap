@@ -15,7 +15,7 @@ import { ProductAlertModal } from '@/components/ProductAlertModal'
 import { ProfileSettings } from '@/components/ProfileSettings'
 import { ExportModal } from '@/components/ExportModal'
 import type { WatchlistItem } from '@/lib/types'
-import { getBaselineScanResult, getBaselineTimeSeries } from '@/data/marketBaseline'
+import { getBaselineScanResult } from '@/data/marketBaseline'
 import { prepareExportData, exportAsJSON, exportAsCSV } from '@/utils/exportScan'
 import { generateScanId } from '@/utils/scanId'
 import { showToast } from '@/utils/toast'
@@ -38,7 +38,6 @@ export function DashboardPage() {
 
   // Get baseline data for landing state - MUST be called before any returns
   const baselineScan = useMemo(() => getBaselineScanResult(0), [])
-  const baselineTimeSeries = useMemo(() => getBaselineTimeSeries(0), [])
 
   useEffect(() => {
     loadRecentScans()
@@ -176,9 +175,6 @@ export function DashboardPage() {
   const hasError = !!error
   const isBaseline = !hasScan
   const displayScan: ScanResult = currentScan || baselineScan
-  const displayTimeSeries = currentScan 
-    ? undefined // Will be built from scan
-    : baselineTimeSeries
   const configBannerScanResult: ScanResult | undefined = currentScan || undefined
 
   // Action handlers
@@ -336,7 +332,6 @@ export function DashboardPage() {
           onAddToWatchlist={user && !isBaseline ? handleAddToWatchlist : undefined}
           isInWatchlist={isInWatchlist}
           isBaseline={isBaseline}
-          baselineTimeSeries={displayTimeSeries}
           onSetAlert={handleSetAlert}
           onExportData={handleExportData}
           onShareReport={handleShareReport}

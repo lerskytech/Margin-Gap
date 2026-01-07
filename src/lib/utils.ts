@@ -17,19 +17,11 @@ export function formatPercent(value: number): string {
   return `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`
 }
 
-export function getTimeframeDays(timeframe: '7d' | '30d' | '90d' | '180d' | '1y'): number {
-  switch (timeframe) {
-    case '7d':
-      return 7
-    case '30d':
-      return 30
-    case '90d':
-      return 90
-    case '180d':
-      return 180
-    case '1y':
-      return 365
-  }
+import type { TimeRangeKey } from '@/utils/timeRanges'
+import { getTimeRangeDays } from '@/utils/timeRanges'
+
+export function getTimeframeDays(timeframe: TimeRangeKey): number | null {
+  return getTimeRangeDays(timeframe)
 }
 
 /**

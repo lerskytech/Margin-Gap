@@ -69,13 +69,38 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 // Handle messages from content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'SCAN_PRODUCT') {
-    handleScanRequest(message.query, message.regionKey, message.userId)
+    // Get location from storage and include in scan
+    getStoredLocation()
+      .then(location => {
+        const regionKey = location ? locationToRegionKey(location) : (message.regionKey || 'US')
+        return handleScanRequest(message.query, regionKey, message.userId, location)
+      })
       .then(result => sendResponse({ success: true, data: result }))
       .catch(error => {
         logger.error('Scan request failed:', error)
         sendResponse({ success: false, error: error.message || 'Scan failed' })
       })
     return true // Keep channel open for async response
+  }
+  
+  if (message.type === 'GET_LOCATION') {
+    getStoredLocation()
+      .then(location => sendResponse({ success: true, data: location }))
+      .catch(error => {
+        logger.error('Get location failed:', error)
+        sendResponse({ success: false, error: error.message })
+      })
+    return true
+  }
+  
+  if (message.type === 'SET_LOCATION') {
+    setStoredLocation(message.location)
+      .then(() => sendResponse({ success: true }))
+      .catch(error => {
+        logger.error('Set location failed:', error)
+        sendResponse({ success: false, error: error.message })
+      })
+    return true
   }
 
   if (message.type === 'GET_AUTH_STATE') {
@@ -207,6 +232,48 @@ async function getConfigStatus() {
   }
 }
 
+// Location storage helpers
+async function getStoredLocation() {
+  try {
+    const result = await chrome.storage.sync.get(['mg_location_mode'])
+    return result.mg_location_mode || { kind: 'national' }
+  } catch {
+    return { kind: 'national' }
+  }
+}
+
+async function setStoredLocation(location) {
+  await chrome.storage.sync.set({ mg_location_mode: location })
+}
+
+async function getRecentLocations() {
+  try {
+    const result = await chrome.storage.sync.get(['mg_recent_locations'])
+    return result.mg_recent_locations || []
+  } catch {
+    return []
+  }
+}
+
+// Convert LocationMode to region_key
+function locationToRegionKey(mode) {
+  if (!mode || mode.kind === 'national') return 'US'
+  if (mode.kind === 'zip') return `US:zip:${mode.zip}`
+  if (mode.kind === 'city') {
+    const normalizedCity = mode.city.replace(/\s+/g, '')
+    return `US:${mode.region || ''}:${normalizedCity}`
+  }
+  return 'US'
+}
+
+// Get location label for display
+function getLocationLabel(mode) {
+  if (!mode || mode.kind === 'national') return 'National'
+  if (mode.kind === 'zip') return mode.label || mode.zip
+  if (mode.kind === 'city') return mode.label
+  return 'Unknown'
+}
+
 // Legacy getAuthState - now uses getSessionStatus
 // Kept for backward compatibility
 async function getAuthState() {
@@ -233,14 +300,17 @@ async function testConnection() {
 }
 
 // Handle scan request with caching and deduplication
-async function handleScanRequest(query, regionKey = 'US', userId = null) {
+async function handleScanRequest(query, regionKey = 'US', userId = null, location = null) {
   if (!query || typeof query !== 'string') {
     throw new Error('Query is required')
   }
 
-  // Normalize for cache key
+  // Normalize for cache key - include location
   const normalizedQuery = normalizeText(query)
-  const cacheKey = `${normalizedQuery}:${regionKey || 'US'}`
+  const locationKey = location ? (location.kind === 'national' ? 'national' : 
+    location.kind === 'zip' ? `zip:${location.zip}` : 
+    `city:${location.city}:${location.region || ''}`) : 'national'
+  const cacheKey = `${normalizedQuery}:${regionKey || 'US'}:${locationKey}`
 
   // Check cache first
   const cached = cache.get(cacheKey)

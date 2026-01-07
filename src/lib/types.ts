@@ -76,9 +76,10 @@ export interface ProviderResponse {
     region_key?: RegionKey
     scanned_at: string
     total_listings: number
-    error?: string
+    error?: string | { code: string; message: string }
     requestId?: string
     providerStatus?: 'success' | 'partial' | 'error'
+    localDataAvailable?: boolean // Whether local data was available for this provider
   }
 }
 
@@ -91,6 +92,11 @@ export interface ScanResult {
   verdict: Verdict
   scanned_at: string
   listings?: Listing[] // Optional: include listings if available
+  metadata?: {
+    localDataAvailable?: boolean
+    providerStatuses?: Record<string, 'success' | 'partial' | 'error'>
+  }
+  isBaseline?: boolean // True if this is a baseline/demo scan result
 }
 
 export interface Verdict {
@@ -194,7 +200,7 @@ export interface SavedSearch {
   created_at: string
 }
 
-export type Timeframe = '7d' | '30d' | '90d' | '180d' | '1y'
+export type Timeframe = '7d' | '30d' | '90d' | '180d' | '1y' | '2y' | '5y' | 'all'
 
 export interface ChartSeries {
   name: string

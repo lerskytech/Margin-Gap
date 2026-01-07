@@ -1,5 +1,6 @@
 // eBay provider - real implementation using eBay APIs via Supabase Edge Functions
 import type { ProviderResponse, Listing, PriceAggregate, Condition, RegionKey } from '@/lib/types'
+import type { LocationMode } from '@/lib/location'
 import { fetchEbayActive, fetchEbaySold } from '@/services/ebayClient'
 import { trimOutliersSmart, isAccessoryOrBundle } from '@/lib/utils'
 
@@ -63,17 +64,35 @@ function calculateStats(prices: number[]): {
 
 export async function scanEbay(
   query: string,
-  regionKey: RegionKey = 'US'
+  regionKey: RegionKey = 'US',
+  location?: LocationMode
 ): Promise<ProviderResponse> {
   const requestId = crypto.randomUUID()
   const today = new Date().toISOString().split('T')[0]
+  
+  // Determine if we should attempt local filtering
+  const isLocal = location && location.kind !== 'national'
+  const localZip = location?.kind === 'zip' ? location.zip : undefined
+  const localCity = location?.kind === 'city' ? location.city : undefined
 
   try {
     // Fetch active and sold listings in parallel
+    // Note: eBay Browse API supports item location filtering for active listings
+    // Sold comps (Finding API) has limited local filtering support
     const [activeResult, soldResult] = await Promise.all([
-      fetchEbayActive({ query, limit: 100, region_key: regionKey }),
+      fetchEbayActive({ 
+        query, 
+        limit: 100, 
+        region_key: regionKey,
+        // Pass location for filtering if available
+        ...(localZip && { zip: localZip }),
+        ...(localCity && { city: localCity }),
+      }),
       fetchEbaySold({ query, limit: 100, region_key: regionKey }),
     ])
+    
+    // Track if local data was actually available
+    const localDataAvailable = isLocal && activeResult.itemSummaries && activeResult.itemSummaries.length > 0
 
     const listings: Listing[] = []
     const activePrices: number[] = []
@@ -208,6 +227,17 @@ export async function scanEbay(
 
     const hasError = activeResult.error || soldResult.error
     const hasPartialData = (activePrices.length > 0 || soldPrices.length > 0) && hasError
+    
+    // Determine provider status considering local data availability
+    let providerStatus: 'success' | 'partial' | 'error' = 'success'
+    let statusMessage: string | undefined
+    
+    if (hasError) {
+      providerStatus = hasPartialData ? 'partial' : 'error'
+    } else if (isLocal && !localDataAvailable) {
+      providerStatus = 'partial'
+      statusMessage = 'Local data limited for this location'
+    }
 
     return {
       listings,
@@ -219,10 +249,9 @@ export async function scanEbay(
         scanned_at: new Date().toISOString(),
         total_listings: listings.length,
         requestId,
-        providerStatus: hasError
-          ? (hasPartialData ? 'partial' : 'error')
-          : 'success',
-        error: hasError ? (activeResult.error || soldResult.error) : undefined,
+        providerStatus,
+        error: hasError ? (activeResult.error || soldResult.error) : statusMessage,
+        localDataAvailable: isLocal ? localDataAvailable : undefined,
       },
     }
   } catch (error) {

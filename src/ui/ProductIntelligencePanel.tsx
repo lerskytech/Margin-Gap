@@ -1,10 +1,12 @@
 import { useMemo } from 'react'
-import type { ScanResult, Timeframe, PriceTimeSeriesPoint } from '@/lib/types'
+import type { ScanResult, Timeframe } from '@/lib/types'
 import { formatMoney, formatPct, badgeIntent, getStatusRationale } from '@/lib/presence'
 import { buildTimeSeriesFromScan } from '@/features/charts/buildTimeSeriesFromScan'
 import { buildTimeSeriesFromScans } from '@/features/charts/buildTimeSeriesFromScans'
 import { makeChartKey, getScansForChartKey } from '@/lib/chartUtils'
 import { useScanStore } from '@/store/scanStore'
+import { useLocationStore } from '@/store/locationStore'
+import { TIME_RANGE_ORDER, type TimeRangeKey } from '@/utils/timeRanges'
 import { Card, CardContent, CardHeader, CardTitle } from './Card'
 import { Badge } from './Badge'
 import { PriceChart } from './PriceChart'
@@ -13,6 +15,8 @@ import { ListingsPreview } from './ListingsPreview'
 import { TrendSummary } from './TrendSummary'
 import { ProductContextHeader } from '@/components/ProductContextHeader'
 import { SuggestedScans } from '@/components/SuggestedScans'
+import { ActionsDropdown } from '@/components/ui/ActionsDropdown'
+import { LocationSwitcher } from '@/components/ui/LocationSwitcher'
 
 interface ProductIntelligencePanelProps {
   scanResult: ScanResult
@@ -21,7 +25,6 @@ interface ProductIntelligencePanelProps {
   onAddToWatchlist?: () => void
   isInWatchlist?: boolean
   isBaseline?: boolean
-  baselineTimeSeries?: PriceTimeSeriesPoint[]
   onSetAlert?: () => void
   onExportData?: () => void
   onShareReport?: () => void
@@ -35,7 +38,6 @@ export function ProductIntelligencePanel({
   onAddToWatchlist,
   isInWatchlist,
   isBaseline = false,
-  baselineTimeSeries,
   onSetAlert,
   onExportData,
   onShareReport,
@@ -43,6 +45,9 @@ export function ProductIntelligencePanel({
 }: ProductIntelligencePanelProps) {
   // Derived state flags for Actions panel
   const isAuthed = Boolean(isAuthenticated)
+  
+  // Location store
+  const { mode: locationMode, recent: recentLocations, setMode, removeRecent, setDefault } = useLocationStore()
   
   const { verdict, aggregates, query, region_key, scanned_at } = scanResult
 
@@ -107,7 +112,7 @@ export function ProductIntelligencePanel({
     safeVerdict.status === 'undervalued' ? 'Undervalued' :
     safeVerdict.status === 'overpriced' ? 'Overpriced' : 'At Market'
 
-  const timeframes: Timeframe[] = ['7d', '30d', '90d', '180d', '1y']
+  const timeframes: TimeRangeKey[] = TIME_RANGE_ORDER
   const lastUpdated = isBaseline
     ? 'Market snapshot — updated recently'
     : new Date(scanned_at).toLocaleString('en-US', {
@@ -122,9 +127,11 @@ export function ProductIntelligencePanel({
   
   const timeSeriesData = useMemo(() => {
     try {
-      if (isBaseline && baselineTimeSeries) {
-        return Array.isArray(baselineTimeSeries) ? baselineTimeSeries : []
+      // No baseline data - only real scans
+      if (isBaseline) {
+        return [] // Return empty for baseline - UI will show proper empty state
       }
+      
       if (!scanResult) {
         return []
       }
@@ -172,7 +179,7 @@ export function ProductIntelligencePanel({
       }
       return []
     }
-  }, [scanResult, isBaseline, baselineTimeSeries, scanHistory, scanCache])
+  }, [scanResult, isBaseline, scanHistory, scanCache])
 
   // Calculate reference baseline (MSRP or National Used Avg)
   const referenceBaseline = safeVerdict.fair_value_range?.high || metrics.national_avg
@@ -227,134 +234,7 @@ export function ProductIntelligencePanel({
         )}
       </div>
 
-      {/* Two Column Grid: Metrics + Action Panel */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left: Snapshot Metrics */}
-        <div className="lg:col-span-2">
-          <Card variant="elevated">
-            <CardHeader className="pb-4 border-b border-subtle">
-              <CardTitle className="text-xl font-semibold">Market Snapshot</CardTitle>
-            </CardHeader>
-            <CardContent className="pt-6">
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-8">
-                <div className="col-span-2 md:col-span-1">
-                  <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2 font-medium">Fair Value Range</div>
-                  <div className="text-2xl font-semibold tabular-nums">
-                    {safeVerdict.fair_value_range?.low !== undefined && safeVerdict.fair_value_range?.high !== undefined
-                      ? `${formatMoney(safeVerdict.fair_value_range.low)} - ${formatMoney(safeVerdict.fair_value_range.high)}`
-                      : 'Data unavailable'}
-                  </div>
-                </div>
-                {metrics.national_avg && (
-                  <div>
-                    <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2 font-medium">National Used Avg</div>
-                    <div className="text-2xl font-semibold tabular-nums">{formatMoney(metrics.national_avg)}</div>
-                  </div>
-                )}
-                {metrics.shippable_avg && (
-                  <div>
-                    <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2 font-medium">Shippable Avg</div>
-                    <div className="text-2xl font-semibold tabular-nums">{formatMoney(metrics.shippable_avg)}</div>
-                  </div>
-                )}
-                {spread && (
-                  <div>
-                    <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2 font-medium">Spread</div>
-                    <div className="flex items-baseline gap-2">
-                      <div className="text-2xl font-semibold tabular-nums">{formatPct(spread.pct)}</div>
-                      <span className="text-xs text-muted-foreground">
-                        ({formatMoney(Math.abs(spread.diff))})
-                      </span>
-                    </div>
-                  </div>
-                )}
-                <div>
-                  <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2 font-medium">Status</div>
-                  <div className="flex flex-col gap-2">
-                    <Badge variant={verdictBadgeVariant} className="w-fit">{verdictLabel}</Badge>
-                    <span className="text-xs text-muted-foreground">
-                      {getStatusRationale(safeVerdict.status, safeVerdict.delta_percent)}
-                    </span>
-                  </div>
-                </div>
-                {safeVerdict.confidence_score !== undefined && safeVerdict.confidence_score > 0 && (
-                  <div>
-                    <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2 font-medium">Confidence</div>
-                    <div className="space-y-2">
-                      <div className="text-2xl font-semibold tabular-nums">{(safeVerdict.confidence_score * 100).toFixed(0)}%</div>
-                      <div className="w-full bg-secondary rounded-full h-2 overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-primary to-primary/80 transition-all duration-500"
-                          style={{ width: `${Math.min(100, Math.max(0, safeVerdict.confidence_score * 100))}%` }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-              {totalSamples > 0 && (
-                <div className="mt-6 pt-6 border-t border-subtle flex items-center gap-2 text-xs text-muted-foreground">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                  </svg>
-                  <span className="font-medium">Data Depth:</span> {totalSamples} listings across {safeAggregates.length} source{safeAggregates.length !== 1 ? 's' : ''}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Right: Action Panel */}
-        <div>
-          <Card variant="elevated">
-            <CardHeader className="pb-4 border-b border-subtle">
-              <CardTitle className="text-lg font-semibold">Actions</CardTitle>
-            </CardHeader>
-            <CardContent className="pt-6 space-y-3">
-              {/* Set Alert */}
-              <Button 
-                variant="outline" 
-                className="w-full justify-start" 
-                disabled={isBaseline}
-                onClick={onSetAlert}
-                title={isBaseline ? 'Run a scan to activate' : !isAuthed ? 'Sign in to activate' : undefined}
-              >
-                Set Alert
-                {isBaseline && <span className="ml-auto text-xs text-muted-foreground">Run a scan to activate</span>}
-                {!isBaseline && !isAuthed && <span className="ml-auto text-xs text-muted-foreground">Sign in to activate</span>}
-              </Button>
-              
-              {/* Export Data */}
-              <Button 
-                variant="outline" 
-                className="w-full justify-start" 
-                disabled={isBaseline || !isAuthed}
-                onClick={onExportData}
-                title={isBaseline ? 'Run a scan to activate' : !isAuthed ? 'Sign in to activate' : undefined}
-              >
-                Export Data
-                {isBaseline && <span className="ml-auto text-xs text-muted-foreground">Run a scan to activate</span>}
-                {!isBaseline && !isAuthed && <span className="ml-auto text-xs text-muted-foreground">Sign in to activate</span>}
-              </Button>
-              
-              {/* Share Report */}
-              <Button 
-                variant="outline" 
-                className="w-full justify-start" 
-                disabled={isBaseline || !isAuthed}
-                onClick={onShareReport}
-                title={isBaseline ? 'Run a scan to activate' : !isAuthed ? 'Sign in to activate' : undefined}
-              >
-                Share Report
-                {isBaseline && <span className="ml-auto text-xs text-muted-foreground">Run a scan to activate</span>}
-                {!isBaseline && !isAuthed && <span className="ml-auto text-xs text-muted-foreground">Sign in to activate</span>}
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-
-      {/* Chart Section */}
+      {/* Chart Section - Primary Focus */}
       <Card variant="elevated">
         <CardHeader className="pb-4 border-b border-subtle">
           <div className="flex items-start justify-between gap-4">
@@ -366,22 +246,43 @@ export function ProductIntelligencePanel({
               </CardTitle>
               <p className="text-sm text-muted-foreground mt-1.5">
                 {isBaseline 
-                  ? 'Sample market data shown. Run a scan to generate real-time results.'
+                  ? 'Run a scan to generate real-time price trends'
                   : 'Trendline fills in as you scan over time'}
               </p>
+              {import.meta.env.DEV && !isBaseline && timeSeriesData.length > 0 && (
+                <p className="text-xs text-muted-foreground/60 mt-1 font-mono">
+                  Range: {timeframe} | Points: {timeSeriesData.length}
+                </p>
+              )}
             </div>
-            <div className="flex gap-1.5 bg-surface2 p-1 rounded-lg border border-subtle">
-              {timeframes.map(tf => (
-                <Button
-                  key={tf}
-                  variant={timeframe === tf ? 'primary' : 'ghost'}
-                  size="sm"
-                  onClick={() => onTimeframeChange(tf)}
-                  className={timeframe === tf ? 'shadow-sm' : ''}
-                >
-                  {tf}
-                </Button>
-              ))}
+            <div className="flex items-center gap-2">
+              <LocationSwitcher
+                value={locationMode}
+                onChange={setMode}
+                recent={recentLocations}
+                onRemoveRecent={removeRecent}
+                onSetDefault={(mode) => setDefault(mode, undefined)}
+              />
+              <div className="flex gap-1.5 bg-surface2 p-1 rounded-lg border border-subtle">
+                {timeframes.map(tf => (
+                  <Button
+                    key={tf}
+                    variant={timeframe === tf ? 'primary' : 'ghost'}
+                    size="sm"
+                    onClick={() => onTimeframeChange(tf)}
+                    className={timeframe === tf ? 'shadow-sm' : ''}
+                  >
+                    {tf}
+                  </Button>
+                ))}
+              </div>
+              <ActionsDropdown
+                isBaseline={isBaseline}
+                isAuthenticated={isAuthed}
+                onSetAlert={onSetAlert || (() => {})}
+                onExportData={onExportData || (() => {})}
+                onShareReport={onShareReport || (() => {})}
+              />
             </div>
           </div>
         </CardHeader>
@@ -392,13 +293,87 @@ export function ProductIntelligencePanel({
             shippableAvg={metrics.shippable_avg}
           />
           <PriceChart
-            key={`${scanResult.query}-${scanResult.region_key}-${timeframe}`}
+            key={`${scanResult.scan_id}-${timeframe}`}
             timeframe={timeframe}
             msrp={referenceBaseline}
             timeSeriesData={timeSeriesData}
           />
         </CardContent>
       </Card>
+
+      {/* Market Snapshot - Compact Secondary */}
+      <Card variant="elevated">
+        <CardHeader className="pb-4 border-b border-subtle">
+          <CardTitle className="text-xl font-semibold">Market Snapshot</CardTitle>
+        </CardHeader>
+        <CardContent className="pt-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-8">
+            <div className="col-span-2 md:col-span-1">
+              <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2 font-medium">Fair Value Range</div>
+              <div className="text-2xl font-semibold tabular-nums">
+                {safeVerdict.fair_value_range?.low !== undefined && safeVerdict.fair_value_range?.high !== undefined
+                  ? `${formatMoney(safeVerdict.fair_value_range.low)} - ${formatMoney(safeVerdict.fair_value_range.high)}`
+                  : 'Data unavailable'}
+              </div>
+            </div>
+            {metrics.national_avg && (
+              <div>
+                <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2 font-medium">National Used Avg</div>
+                <div className="text-2xl font-semibold tabular-nums">{formatMoney(metrics.national_avg)}</div>
+              </div>
+            )}
+            {metrics.shippable_avg && (
+              <div>
+                <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2 font-medium">Shippable Avg</div>
+                <div className="text-2xl font-semibold tabular-nums">{formatMoney(metrics.shippable_avg)}</div>
+              </div>
+            )}
+            {spread && (
+              <div>
+                <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2 font-medium">Spread</div>
+                <div className="flex items-baseline gap-2">
+                  <div className="text-2xl font-semibold tabular-nums">{formatPct(spread.pct)}</div>
+                  <span className="text-xs text-muted-foreground">
+                    ({formatMoney(Math.abs(spread.diff))})
+                  </span>
+                </div>
+              </div>
+            )}
+            <div>
+              <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2 font-medium">Status</div>
+              <div className="flex flex-col gap-2">
+                <Badge variant={verdictBadgeVariant} className="w-fit">{verdictLabel}</Badge>
+                <span className="text-xs text-muted-foreground">
+                  {getStatusRationale(safeVerdict.status, safeVerdict.delta_percent)}
+                </span>
+              </div>
+            </div>
+            {safeVerdict.confidence_score !== undefined && safeVerdict.confidence_score > 0 && (
+              <div>
+                <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2 font-medium">Confidence</div>
+                <div className="space-y-2">
+                  <div className="text-2xl font-semibold tabular-nums">{(safeVerdict.confidence_score * 100).toFixed(0)}%</div>
+                  <div className="w-full bg-secondary rounded-full h-2 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-primary to-primary/80 transition-all duration-500"
+                      style={{ width: `${Math.min(100, Math.max(0, safeVerdict.confidence_score * 100))}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+          {totalSamples > 0 && (
+            <div className="mt-6 pt-6 border-t border-subtle flex items-center gap-2 text-xs text-muted-foreground">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+              <span className="font-medium">Data Depth:</span> {totalSamples} listings across {safeAggregates.length} source{safeAggregates.length !== 1 ? 's' : ''}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
 
       {/* Suggested Scans */}
       {!isBaseline && (

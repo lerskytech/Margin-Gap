@@ -246,12 +246,25 @@
       }))
       const updatedAt = provenance.updatedAt || result.scanned_at || result.meta?.generatedAt
 
+      // Get current location for display
+      const locationLabel = data.locationLabel || 'National'
+      const isLocal = data.location && data.location.kind !== 'national'
+      
       this.element.innerHTML = `
         <div class="margingap-popup-content">
           <div class="margingap-accent" style="background: ${statusInfo.color}"></div>
           <div class="margingap-header">
-            <h3 class="margingap-title">${escapeHtml(query)}</h3>
-            <button class="margingap-close" aria-label="Close">×</button>
+            <div class="margingap-header-top">
+              <h3 class="margingap-title">${escapeHtml(query)}</h3>
+              <button class="margingap-close" aria-label="Close">×</button>
+            </div>
+            <div class="margingap-location-chip" style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; background: ${isLocal ? '#dbeafe' : '#f3f4f6'}; border-radius: 12px; font-size: 10px; color: ${isLocal ? '#1d4ed8' : '#6b7280'}; margin-top: 4px;">
+              <svg style="width: 10px; height: 10px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path>
+              </svg>
+              ${escapeHtml(locationLabel)}
+            </div>
           </div>
           <div class="margingap-body">
             ${marginGap !== null && marginGapPct !== null ? `
@@ -607,16 +620,27 @@
       popup.createPopup(anchor)
       popup.updatePopup('loading', { query: parsed.query })
 
-      // Get auth state
-      const authState = await chrome.runtime.sendMessage({ type: 'GET_SESSION_STATUS' })
+      // Get auth state and location in parallel
+      const [authState, locationResponse] = await Promise.all([
+        chrome.runtime.sendMessage({ type: 'GET_SESSION_STATUS' }),
+        chrome.runtime.sendMessage({ type: 'GET_LOCATION' })
+      ])
+      
       if (!authState.success) {
         throw new Error('Failed to get auth state')
       }
+      
+      // Get location from storage (synced from web app)
+      const location = locationResponse?.success ? locationResponse.data : { kind: 'national' }
+      const locationLabel = getLocationLabel(location)
 
-      // Infer region
-      const regionKey = inferRegionFromPage(pageUrl)
+      // Infer region (override with location if set)
+      let regionKey = inferRegionFromPage(pageUrl)
+      if (location && location.kind !== 'national') {
+        regionKey = locationToRegionKey(location)
+      }
 
-      // Request scan
+      // Request scan (background will use stored location)
       const response = await chrome.runtime.sendMessage({
         type: 'SCAN_PRODUCT',
         query: parsed.query,
@@ -632,8 +656,13 @@
         return
       }
 
-      // Show loaded state
-      popup.updatePopup('loaded', { query: parsed.query, data: response.data })
+      // Show loaded state with location info
+      popup.updatePopup('loaded', { 
+        query: parsed.query, 
+        data: response.data,
+        location,
+        locationLabel
+      })
     } catch (error) {
       logger.error('Price check error:', error)
       const isConfigError = error.message?.includes('not configured') || 
@@ -643,6 +672,24 @@
         configError: isConfigError
       })
     }
+  }
+  
+  // Location helpers for content script
+  function getLocationLabel(mode) {
+    if (!mode || mode.kind === 'national') return 'National'
+    if (mode.kind === 'zip') return mode.label || mode.zip
+    if (mode.kind === 'city') return mode.label
+    return 'Unknown'
+  }
+  
+  function locationToRegionKey(mode) {
+    if (!mode || mode.kind === 'national') return 'US'
+    if (mode.kind === 'zip') return `US:zip:${mode.zip}`
+    if (mode.kind === 'city') {
+      const normalizedCity = mode.city.replace(/\s+/g, '')
+      return `US:${mode.region || ''}:${normalizedCity}`
+    }
+    return 'US'
   }
 
   // Infer region from page URL
