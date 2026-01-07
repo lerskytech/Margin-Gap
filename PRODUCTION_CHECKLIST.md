@@ -2,9 +2,9 @@
 
 ## ✅ Deployment Complete
 
-Your app is deployed at: **https://margin-gap-9cd1.vercel.app**
+Your app is deployed at: **https://margingap.com** (custom domain)
 
-Vercel Dashboard: https://vercel.com/skyler-kellys-projects/margin-gap-9cd1
+Vercel Dashboard: https://vercel.com/skyler-kellys-projects/margingap
 
 ---
 
@@ -16,13 +16,13 @@ Go to: **Supabase Dashboard → Authentication → URL Configuration**
 
 Add to **Additional Redirect URLs:**
 ```
-https://margin-gap-9cd1.vercel.app/auth/callback
-https://margin-gap-9cd1.vercel.app
+https://margingap.com/auth/callback
+https://margingap.com
 ```
 
 Update **Site URL** to:
 ```
-https://margin-gap-9cd1.vercel.app
+https://margingap.com
 ```
 
 Click **Save**
@@ -35,12 +35,12 @@ Go to: **Google Cloud Console → APIs & Services → Credentials → Your OAuth
 
 Add to **Authorized JavaScript origins:**
 ```
-https://margin-gap-9cd1.vercel.app
+https://margingap.com
 ```
 
 Add to **Authorized redirect URIs:**
 ```
-https://margin-gap-9cd1.vercel.app/auth/callback
+https://margingap.com/auth/callback
 ```
 
 Click **Save**
@@ -61,7 +61,7 @@ If missing, add them and **redeploy**.
 
 ### 4. Test Production Deployment
 
-Visit: **https://margin-gap-9cd1.vercel.app**
+Visit: **https://margingap.com**
 
 Test checklist:
 - [ ] App loads without errors
@@ -117,7 +117,7 @@ If you want a custom domain:
 ## 📊 Monitoring
 
 Monitor your deployment:
-- **Vercel Dashboard**: https://vercel.com/skyler-kellys-projects/margin-gap-9cd1
+- **Vercel Dashboard**: https://vercel.com/skyler-kellys-projects/margingap
 - **Analytics**: View in Vercel Dashboard → Analytics
 - **Logs**: View in Vercel Dashboard → Logs
 - **Speed Insights**: View in Vercel Dashboard → Speed Insights

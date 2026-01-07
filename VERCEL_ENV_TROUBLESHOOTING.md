@@ -96,7 +96,7 @@ If you're in dev mode, the login page shows a debug panel with env var status.
 ## Step-by-Step Fix
 
 1. **Go to Vercel Dashboard**
-   - https://vercel.com/skyler-kellys-projects/margin-gap-9cd1
+   - https://vercel.com/skyler-kellys-projects/margingap
    - Or your project dashboard
 
 2. **Navigate to Settings → Environment Variables**
