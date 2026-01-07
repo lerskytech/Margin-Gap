@@ -8,6 +8,7 @@ import { LoginPage } from './pages/LoginPage'
 import { SignupPage } from './pages/SignupPage'
 import { PricingPage } from './pages/PricingPage'
 import { AuthCallbackPage } from './pages/AuthCallbackPage'
+import { ShareReportPage } from './pages/ShareReportPage'
 import { Skeleton } from './ui/Skeleton'
 import { DevDebugPanel } from './components/system/DevDebugPanel'
 
@@ -68,6 +69,14 @@ function App() {
               element={
                 <ErrorBoundary>
                   <AuthCallbackPage />
+                </ErrorBoundary>
+              } 
+            />
+            <Route 
+              path="/share/:token" 
+              element={
+                <ErrorBoundary>
+                  <ShareReportPage />
                 </ErrorBoundary>
               } 
             />

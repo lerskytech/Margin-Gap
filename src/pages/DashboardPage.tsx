@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import type { Timeframe, ScanResult } from '@/lib/types'
 import { useScanStore } from '@/store/scanStore'
 import { useAuthStore } from '@/store/authStore'
@@ -10,19 +11,29 @@ import { Button } from '@/ui/Button'
 import { DebugDrawer } from '@/components/layout/DebugDrawer'
 import { ConfigBanner } from '@/components/ConfigBanner'
 import { AlertRuleModal } from '@/components/AlertRuleModal'
+import { ProductAlertModal } from '@/components/ProductAlertModal'
 import { ProfileSettings } from '@/components/ProfileSettings'
+import { ExportModal } from '@/components/ExportModal'
 import type { WatchlistItem } from '@/lib/types'
 import { getBaselineScanResult, getBaselineTimeSeries } from '@/data/marketBaseline'
+import { prepareExportData, exportAsJSON, exportAsCSV } from '@/utils/exportScan'
+import { generateScanId } from '@/utils/scanId'
+import { showToast } from '@/utils/toast'
+import { supabase } from '@/services/supabase'
 
 export function DashboardPage() {
   // ALL HOOKS MUST BE CALLED UNCONDITIONALLY AT THE TOP
+  const navigate = useNavigate()
+  const location = useLocation()
   const { currentScan, loading, error, performScan, loadRecentScans } = useScanStore()
   const { user } = useAuthStore()
   const { items: watchlistItems, addItem } = useWatchlistItems(user?.id)
   const { folders, ensureDefaultFolder } = useWatchlistFolders(user?.id)
   const [timeframe, setTimeframe] = useState<Timeframe>('90d')
   const [showAlertModal, setShowAlertModal] = useState(false)
+  const [showProductAlertModal, setShowProductAlertModal] = useState(false)
   const [showProfileModal, setShowProfileModal] = useState(false)
+  const [showExportModal, setShowExportModal] = useState(false)
   const [selectedWatchlistItem, setSelectedWatchlistItem] = useState<WatchlistItem | null>(null)
 
   // Get baseline data for landing state - MUST be called before any returns
@@ -32,6 +43,66 @@ export function DashboardPage() {
   useEffect(() => {
     loadRecentScans()
   }, [loadRecentScans])
+
+  // Handle post-login intent (e.g., set-alert)
+  useEffect(() => {
+    if (!user) return
+    
+    const postLoginIntent = sessionStorage.getItem('postLoginIntent')
+    if (postLoginIntent) {
+      try {
+        const intent = JSON.parse(postLoginIntent)
+        if (intent.intent === 'set-alert') {
+          sessionStorage.removeItem('postLoginIntent')
+          // If we have a scan matching the query, open alert modal
+          if (currentScan && currentScan.query === intent.query) {
+            setShowProductAlertModal(true)
+          } else if (intent.query) {
+            // Perform scan first
+            performScan(intent.query, user.id)
+            // Modal will open after scan completes (handled in another effect)
+          }
+        }
+      } catch (e) {
+        console.error('Failed to parse postLoginIntent:', e)
+        sessionStorage.removeItem('postLoginIntent')
+      }
+    }
+  }, [user, currentScan, performScan])
+
+  // Handle URL parameters (e.g., from extension)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const queryParam = params.get('query')
+    const action = params.get('action')
+
+    if (queryParam && action === 'set-alert') {
+      // If we have a query, perform scan first, then open alert modal
+      if (!currentScan || currentScan.query !== queryParam) {
+        performScan(queryParam, user?.id)
+      }
+      // Will open modal after scan completes (handled below)
+    }
+
+    // Clean up URL params
+    if (queryParam || action) {
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+  }, [])
+
+  // Open alert modal when scan completes and action=set-alert was in URL
+  useEffect(() => {
+    if (!currentScan) return
+    
+    const params = new URLSearchParams(window.location.search)
+    const action = params.get('action')
+    
+    if (action === 'set-alert' && currentScan && user) {
+      setShowProductAlertModal(true)
+      // Clean up URL
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+  }, [currentScan, user])
 
   const providerStatuses = useMemo(() => {
     if (!currentScan) return undefined
@@ -110,6 +181,92 @@ export function DashboardPage() {
     : baselineTimeSeries
   const configBannerScanResult: ScanResult | undefined = currentScan || undefined
 
+  // Action handlers
+  const handleSetAlert = () => {
+    if (isBaseline) return
+    
+    if (!user) {
+      // Not authenticated - redirect to login with return params
+      const returnPath = location.pathname + location.search
+      const scanId = currentScan?.scan_id || generateScanId(currentScan?.query || '', currentScan?.region_key || 'US')
+      const query = currentScan?.query || ''
+      
+      // Store intent for post-login
+      sessionStorage.setItem('postLoginIntent', JSON.stringify({
+        intent: 'set-alert',
+        scanId,
+        query,
+        timestamp: Date.now()
+      }))
+      
+      navigate(`/login?next=${encodeURIComponent(returnPath)}&intent=set-alert`)
+      return
+    }
+    
+    // Authenticated - open modal
+    if (currentScan) {
+      setShowProductAlertModal(true)
+    }
+  }
+
+  const handleExportData = () => {
+    if (isBaseline || !user || !currentScan) return
+    setShowExportModal(true)
+  }
+
+  const handleExportJSON = () => {
+    if (!currentScan) return
+    const exportData = prepareExportData(currentScan)
+    exportAsJSON(exportData)
+    showToast('Exported JSON')
+  }
+
+  const handleExportCSV = () => {
+    if (!currentScan) return
+    const exportData = prepareExportData(currentScan)
+    exportAsCSV(exportData)
+    showToast('Exported CSV')
+  }
+
+  const handleShareReport = async () => {
+    if (isBaseline || !user || !currentScan) return
+    
+    try {
+      if (!supabase) {
+        showToast('Supabase not configured')
+        return
+      }
+
+      const exportData = prepareExportData(currentScan)
+      const scanId = currentScan.scan_id || generateScanId(currentScan.query, currentScan.region_key)
+      
+      const { data, error } = await supabase.functions.invoke('create-share', {
+        body: {
+          scanId,
+          query: currentScan.query,
+          payload: exportData
+        }
+      })
+
+      if (error) {
+        console.error('Share error:', error)
+        showToast('Failed to create share link')
+        return
+      }
+
+      if (data?.token) {
+        const shareUrl = `${window.location.origin}/share/${data.token}`
+        await navigator.clipboard.writeText(shareUrl)
+        showToast('Link copied to clipboard')
+      } else {
+        showToast('Failed to create share link')
+      }
+    } catch (error) {
+      console.error('Share error:', error)
+      showToast('Failed to create share link')
+    }
+  }
+
   const handleAddToWatchlist = async () => {
     if (!currentScan || !user) return
     try {
@@ -180,6 +337,10 @@ export function DashboardPage() {
           isInWatchlist={isInWatchlist}
           isBaseline={isBaseline}
           baselineTimeSeries={displayTimeSeries}
+          onSetAlert={handleSetAlert}
+          onExportData={handleExportData}
+          onShareReport={handleShareReport}
+          isAuthenticated={!!user}
         />
       </div>
       <DebugDrawer
@@ -215,10 +376,28 @@ export function DashboardPage() {
           />
         </div>
       )}
+      {showProductAlertModal && currentScan && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <ProductAlertModal
+            queryText={currentScan.query}
+            onClose={() => setShowProductAlertModal(false)}
+            onSuccess={() => {
+              // Alert created successfully
+            }}
+          />
+        </div>
+      )}
       {showProfileModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <ProfileSettings onClose={() => setShowProfileModal(false)} />
         </div>
+      )}
+      {showExportModal && (
+        <ExportModal
+          onExportJSON={handleExportJSON}
+          onExportCSV={handleExportCSV}
+          onClose={() => setShowExportModal(false)}
+        />
       )}
     </>
   )

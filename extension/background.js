@@ -107,6 +107,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       })
     return true
   }
+
+  if (message.type === 'SET_AUTH_SESSION') {
+    // Store session from web app
+    chrome.storage.local.set({ 'supabase.auth.token': message.session })
+      .then(() => sendResponse({ success: true }))
+      .catch(error => {
+        logger.error('Failed to store auth session:', error)
+        sendResponse({ success: false, error: error.message })
+      })
+    return true
+  }
+
+  if (message.type === 'CLEAR_AUTH_SESSION') {
+    // Clear session
+    chrome.storage.local.remove(['supabase.auth.token'])
+      .then(() => sendResponse({ success: true }))
+      .catch(error => {
+        logger.error('Failed to clear auth session:', error)
+        sendResponse({ success: false, error: error.message })
+      })
+    return true
+  }
 })
 
 // Get Supabase config from storage with safe defaults
@@ -150,13 +172,24 @@ async function getAuthState() {
     const session = await chrome.storage.local.get(['supabase.auth.token'])
     const token = session['supabase.auth.token']
     
+    // Check if expired
+    if (token && token.expires_at) {
+      const expiresAt = token.expires_at * 1000
+      if (expiresAt < Date.now()) {
+        // Session expired, clear it
+        await chrome.storage.local.remove(['supabase.auth.token'])
+        return { isAuthenticated: false, userId: null, email: null }
+      }
+    }
+    
     return {
       isAuthenticated: !!token,
-      userId: token?.user?.id || null
+      userId: token?.user?.id || null,
+      email: token?.user?.email || null
     }
   } catch (error) {
     logger.warn('Auth state error:', error)
-    return { isAuthenticated: false, userId: null }
+    return { isAuthenticated: false, userId: null, email: null }
   }
 }
 

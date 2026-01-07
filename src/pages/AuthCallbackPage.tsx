@@ -29,8 +29,10 @@ export function AuthCallbackPage() {
         }
 
         if (session) {
-          // Session exists, redirect to dashboard
-          navigate('/', { replace: true })
+          // Session exists, redirect to dashboard (or next param if exists)
+          const urlParams = new URLSearchParams(window.location.search)
+          const next = urlParams.get('next')
+          navigate(next ? decodeURIComponent(next) : '/', { replace: true })
           return
         }
 
@@ -48,7 +50,10 @@ export function AuthCallbackPage() {
         }
 
         if (retrySession) {
-          navigate('/', { replace: true })
+          // Session exists after retry, redirect to dashboard (or next param if exists)
+          const urlParams = new URLSearchParams(window.location.search)
+          const next = urlParams.get('next')
+          navigate(next ? decodeURIComponent(next) : '/', { replace: true })
           return
         }
 

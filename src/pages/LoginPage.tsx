@@ -1,5 +1,5 @@
 import { useState, FormEvent, useEffect } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { Card, CardContent, CardHeader, CardTitle } from '@/ui/Card'
 import { Button } from '@/ui/Button'
@@ -8,6 +8,7 @@ import { getEnvStatus } from '@/utils/envDebug'
 
 export function LoginPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { signIn, signInWithGoogle, loading, isEnabled, lastAuthError, clearAuthError } = useAuthStore()
   const [envDebug, setEnvDebug] = useState<ReturnType<typeof getEnvStatus> | null>(null)
 
@@ -21,6 +22,11 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
 
+  const getRedirectPath = () => {
+    const next = searchParams.get('next')
+    return next ? decodeURIComponent(next) : '/'
+  }
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setError(null)
@@ -28,7 +34,7 @@ export function LoginPage() {
 
     try {
       await signIn(email, password)
-      navigate('/')
+      navigate(getRedirectPath(), { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to sign in')
     }
@@ -92,6 +98,8 @@ export function LoginPage() {
                 setError(null)
                 clearAuthError()
                 try {
+                  // Google OAuth will redirect to /auth/callback, which then redirects to dashboard
+                  // The postLoginIntent in sessionStorage will be handled by DashboardPage
                   await signInWithGoogle()
                 } catch (err) {
                   // Error is already stored in lastAuthError by the store

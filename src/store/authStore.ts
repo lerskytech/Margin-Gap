@@ -79,12 +79,34 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       // Set up auth state change listener (only once)
-      if (!authStateChangeUnsubscribe) {
-        const subscription = authService.onAuthStateChange((user) => {
-          set({ user })
-        })
-        authStateChangeUnsubscribe = subscription.unsubscribe || (() => {})
-      }
+        if (!authStateChangeUnsubscribe) {
+          const subscription = authService.onAuthStateChange(async (user) => {
+            set({ user })
+            // Sync session to extension if available
+            if (user && typeof window !== 'undefined') {
+              try {
+                const { authBridge } = await import('@/services/authBridge')
+                await authBridge.syncSessionToExtension()
+              } catch (error) {
+                // Extension might not be installed, ignore
+                if (import.meta.env.DEV) {
+                  console.debug('Extension auth sync skipped:', error)
+                }
+              }
+            }
+          })
+          authStateChangeUnsubscribe = subscription.unsubscribe || (() => {})
+        }
+        
+        // Initial sync if user exists
+        if (get().user && typeof window !== 'undefined') {
+          try {
+            const { authBridge } = await import('@/services/authBridge')
+            await authBridge.syncSessionToExtension()
+          } catch (error) {
+            // Extension might not be installed, ignore
+          }
+        }
     } catch (error: any) {
       // Only log unexpected errors, not AuthSessionMissingError
       if (error?.name !== 'AuthSessionMissingError' && !error?.message?.includes('session missing')) {

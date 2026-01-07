@@ -307,13 +307,59 @@
             `}
           </div>
           <div class="margingap-footer">
-            <a href="https://margingap.com" target="_blank" class="margingap-link" rel="noopener">
-              View full analysis →
-            </a>
+            <div class="margingap-footer-actions">
+              <button class="margingap-button margingap-button-alert" data-query="${escapeHtml(query)}" data-authenticated="false">
+                Set Alert
+              </button>
+              <a href="https://margingap.com" target="_blank" class="margingap-link" rel="noopener">
+                View full analysis →
+              </a>
+            </div>
           </div>
         </div>
       `
       this.attachCloseHandler()
+      this.attachAlertHandler(query)
+    }
+
+    async attachAlertHandler(query) {
+      const alertBtn = this.element?.querySelector('.margingap-button-alert')
+      if (!alertBtn) return
+      
+      // Check auth state
+      try {
+        const authResponse = await chrome.runtime.sendMessage({ type: 'GET_AUTH_STATE' })
+        const isAuthenticated = authResponse?.success && authResponse?.data?.isAuthenticated
+        
+        if (isAuthenticated) {
+          alertBtn.setAttribute('data-authenticated', 'true')
+          alertBtn.addEventListener('click', () => this.handleSetAlert(query))
+        } else {
+          alertBtn.setAttribute('data-authenticated', 'false')
+          alertBtn.textContent = 'Sign in to enable alerts'
+          alertBtn.addEventListener('click', () => this.handleSignInPrompt())
+        }
+      } catch (error) {
+        console.error('[MarginGap] Auth check error:', error)
+        alertBtn.setAttribute('data-authenticated', 'false')
+        alertBtn.textContent = 'Sign in to enable alerts'
+        alertBtn.addEventListener('click', () => this.handleSignInPrompt())
+      }
+    }
+
+    handleSetAlert(query) {
+      // Open web app with pre-filled query and alert modal
+      const url = new URL('https://margingap.com')
+      url.searchParams.set('query', query)
+      url.searchParams.set('action', 'set-alert')
+      chrome.tabs.create({ url: url.toString() })
+      this.destroyPopup()
+    }
+
+    handleSignInPrompt() {
+      // Open web app login page
+      chrome.tabs.create({ url: 'https://margingap.com/login?redirect=extension' })
+      this.destroyPopup()
     }
 
     attachCloseHandler() {
