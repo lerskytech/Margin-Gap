@@ -1,16 +1,16 @@
-import { useMemo } from 'react'
-import type { ScanResult, Timeframe } from '@/lib/types'
+import { useMemo, useEffect, useState } from 'react'
+import type { ScanResult, Timeframe, PriceTimeSeriesPoint } from '@/lib/types'
 import { formatMoney, formatPct, badgeIntent, getStatusRationale } from '@/lib/presence'
-import { buildTimeSeriesFromScan } from '@/features/charts/buildTimeSeriesFromScan'
-import { buildTimeSeriesFromScans } from '@/features/charts/buildTimeSeriesFromScans'
-import { makeChartKey, getScansForChartKey } from '@/lib/chartUtils'
-import { useScanStore } from '@/store/scanStore'
+import { fetchTrends, type TrendPoint } from '@/services/trends'
+import { makeScanKey } from '@/lib/scanKey'
 import { useLocationStore } from '@/store/locationStore'
+import { useAuthStore } from '@/store/authStore'
 import { TIME_RANGE_ORDER, type TimeRangeKey } from '@/utils/timeRanges'
 import { Card, CardContent, CardHeader, CardTitle } from './Card'
 import { Badge } from './Badge'
 import { PriceChart } from './PriceChart'
 import { Button } from './Button'
+import { Input } from '@/ui/Input'
 import { ListingsPreview } from './ListingsPreview'
 import { TrendSummary } from './TrendSummary'
 import { ProductContextHeader } from '@/components/ProductContextHeader'
@@ -45,6 +45,9 @@ export function ProductIntelligencePanel({
 }: ProductIntelligencePanelProps) {
   // Derived state flags for Actions panel
   const isAuthed = Boolean(isAuthenticated)
+  
+  // Auth store for user ID
+  const { user } = useAuthStore()
   
   // Location store
   const { mode: locationMode, recent: recentLocations, setMode, removeRecent, setDefault } = useLocationStore()
@@ -122,64 +125,216 @@ export function ProductIntelligencePanel({
         minute: '2-digit',
       })
   
-  // Get scan history for chart timeline
-  const { scanHistory, scanCache } = useScanStore()
-  
-  const timeSeriesData = useMemo(() => {
-    try {
-      // No baseline data - only real scans
-      if (isBaseline) {
-        return [] // Return empty for baseline - UI will show proper empty state
+  // Scan history trends state
+  const [trendPoints, setTrendPoints] = useState<TrendPoint[]>([])
+  const [trendsLoading, setTrendsLoading] = useState(false)
+  const [trendsError, setTrendsError] = useState<{ code: string; message: string } | null>(null)
+  const [dataIntegrity, setDataIntegrity] = useState<'verified' | 'unavailable' | 'error'>('unavailable')
+  const [locationInput, setLocationInput] = useState<string>('')
+  const [appliedLocation, setAppliedLocation] = useState<{ type: 'zip' | 'city' | 'none'; value?: string } | null>(null)
+
+  // Compute scan_key for trend fetching
+  const scanKey = useMemo(() => {
+    if (isBaseline || !scanResult) return null
+    return makeScanKey(scanResult, locationMode)
+  }, [scanResult, locationMode, isBaseline])
+
+  // Determine location_key from location
+  const locationKey = useMemo(() => {
+    if (appliedLocation) {
+      if (appliedLocation.type === 'zip') {
+        return `ZIP:${appliedLocation.value}`
+      } else if (appliedLocation.type === 'city') {
+        return `CITY:${appliedLocation.value}`
       }
-      
-      if (!scanResult) {
-        return []
-      }
-      
-      // Build chart key from current scan
-      const chartKey = makeChartKey(scanResult)
-      
-      if (!chartKey) {
-        // Fallback to single scan if no chart key
-        const result = buildTimeSeriesFromScan(scanResult)
-        return Array.isArray(result) ? result : []
-      }
-      
-      // Get all scans matching this chart key (from history + cache)
-      const allScans = [...scanHistory]
-      // Also check cache for any missing scans
-      for (const scan of scanCache.values()) {
-        if (!allScans.find(s => s.scan_id === scan.scan_id)) {
-          allScans.push(scan)
+    } else if (locationMode.kind === 'zip') {
+      return `ZIP:${locationMode.zip}`
+    } else if (locationMode.kind === 'city') {
+      return `CITY:${locationMode.city},${locationMode.region || ''}`
+    }
+    return 'US'
+  }, [appliedLocation, locationMode])
+
+  // Fetch scan history trends with AbortController for cancellation
+  useEffect(() => {
+    // No baseline data - only real scans
+    if (isBaseline || !scanResult || !scanKey) {
+      setTrendPoints([])
+      setTrendsError(null)
+      setDataIntegrity('unavailable')
+      return
+    }
+
+    // AbortController to cancel in-flight requests when dependencies change
+    const abortController = new AbortController()
+    
+    setTrendsLoading(true)
+    setTrendsError(null)
+    setDataIntegrity('unavailable')
+
+    // Extract sources from aggregates
+    const sources = [...new Set((scanResult.aggregates || []).map(a => a.source_type).filter(Boolean))]
+
+    // Fetch trends from Edge Function
+    fetchTrends({
+      scan_key: scanKey,
+      timeframe: timeframe,
+      location_key: locationKey,
+      sources: sources,
+      user_id: user?.id,
+    })
+      .then((response) => {
+        // Check if request was aborted
+        if (abortController.signal.aborted) {
+          return
         }
-      }
-      
-      const matchingScans = getScansForChartKey(chartKey, scanCache)
-      // Also include scans from history that match
-      const historyMatches = allScans.filter(s => {
-        const key = makeChartKey(s)
-        return key === chartKey
+        
+        if (response.ok) {
+          // If ok:true but points.length < 2, this is not an error - it's just insufficient data
+          if (response.points.length < 2) {
+            setTrendPoints(response.points)
+            setTrendsError(null) // Not an error - just not enough data
+            setDataIntegrity('unavailable')
+          } else {
+            setTrendPoints(response.points)
+            setTrendsError(null)
+            setDataIntegrity('verified')
+          }
+        } else {
+          setTrendPoints([])
+          // Store error with debug info
+          setTrendsError({
+            code: response.code,
+            message: response.message,
+            requestId: response.requestId,
+            debug: response._debug,
+          } as any)
+          setDataIntegrity('error')
+        }
       })
-      
-      // Combine and dedupe by scan_id
-      const combined = new Map<string, ScanResult>()
-      matchingScans.forEach(s => combined.set(s.scan_id, s))
-      historyMatches.forEach(s => combined.set(s.scan_id, s))
-      // Always include current scan
-      combined.set(scanResult.scan_id, scanResult)
-      
-      const chartScans = Array.from(combined.values())
-      
-      // Build time series from all matching scans
-      const result = buildTimeSeriesFromScans(chartScans)
-      return Array.isArray(result) ? result : []
-    } catch (error) {
-      if (import.meta.env.DEV) {
-        console.error('Error building time series data:', error)
-      }
+      .catch((error) => {
+        // Ignore abort errors
+        if (abortController.signal.aborted) {
+          return
+        }
+        
+        if (import.meta.env.DEV) {
+          console.error('Error fetching trends:', error)
+        }
+        setTrendPoints([])
+        setTrendsError({
+          code: 'NETWORK_ERROR',
+          message: error instanceof Error ? error.message : 'Failed to load trends',
+          debug: { endpoint: `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/get-trends`, status: 0 },
+        } as any)
+        setDataIntegrity('error')
+      })
+      .finally(() => {
+        if (!abortController.signal.aborted) {
+          setTrendsLoading(false)
+        }
+      })
+
+    // Cleanup: abort request if dependencies change
+    return () => {
+      abortController.abort()
+    }
+  }, [scanResult, scanKey, timeframe, isBaseline, locationKey, user?.id])
+
+  // Convert TrendPoint[] to PriceTimeSeriesPoint format for chart compatibility
+  const timeSeriesData = useMemo(() => {
+    if (!trendPoints || trendPoints.length === 0) {
       return []
     }
-  }, [scanResult, isBaseline, scanHistory, scanCache])
+
+    const converted: PriceTimeSeriesPoint[] = []
+
+    // Add national used series
+    trendPoints.forEach(point => {
+      if (point.national_used_avg !== null && point.national_used_avg !== undefined && Number.isFinite(point.national_used_avg)) {
+        converted.push({
+          date: point.t.split('T')[0],
+          avg_price: point.national_used_avg,
+          sample_size: 1,
+          source_type: 'ebay_active',
+          region_key: scanResult.region_key === 'US' ? 'US' : scanResult.region_key,
+          condition: 'used',
+        })
+      }
+    })
+
+    // Add eBay used series
+    trendPoints.forEach(point => {
+      if (point.ebay_used_avg !== null && point.ebay_used_avg !== undefined && Number.isFinite(point.ebay_used_avg)) {
+        converted.push({
+          date: point.t.split('T')[0],
+          avg_price: point.ebay_used_avg,
+          sample_size: 1,
+          source_type: 'ebay_active',
+          region_key: scanResult.region_key === 'US' ? 'US' : scanResult.region_key,
+          condition: 'used',
+        })
+      }
+    })
+
+    // Add local avg series
+    trendPoints.forEach(point => {
+      if (point.local_avg !== null && point.local_avg !== undefined && Number.isFinite(point.local_avg)) {
+        converted.push({
+          date: point.t.split('T')[0],
+          avg_price: point.local_avg,
+          sample_size: 1,
+          source_type: 'facebook_marketplace',
+          region_key: locationKey !== 'US' ? locationKey : scanResult.region_key,
+          condition: 'used',
+        })
+      }
+    })
+
+    // Add shippable avg series
+    trendPoints.forEach(point => {
+      if (point.shippable_avg !== null && point.shippable_avg !== undefined && Number.isFinite(point.shippable_avg)) {
+        converted.push({
+          date: point.t.split('T')[0],
+          avg_price: point.shippable_avg,
+          sample_size: 1,
+          source_type: 'mercari',
+          region_key: scanResult.region_key === 'US' ? 'US' : scanResult.region_key,
+        })
+      }
+    })
+
+    // Add MSRP as category_benchmark
+    trendPoints.forEach(point => {
+      if (point.msrp !== null && point.msrp !== undefined && Number.isFinite(point.msrp)) {
+        converted.push({
+          date: point.t.split('T')[0],
+          avg_price: point.msrp,
+          sample_size: 0, // Reference value
+          source_type: 'category_benchmark',
+          region_key: 'US',
+        })
+      }
+    })
+
+    return converted.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+  }, [trendPoints, scanResult.region_key, locationKey])
+
+  const handleApplyLocation = () => {
+    const trimmed = locationInput.trim()
+    if (!trimmed) {
+      setAppliedLocation({ type: 'none' })
+      return
+    }
+
+    // Check if it's a ZIP (5 digits)
+    if (/^\d{5}$/.test(trimmed)) {
+      setAppliedLocation({ type: 'zip', value: trimmed })
+    } else {
+      // Treat as city
+      setAppliedLocation({ type: 'city', value: trimmed })
+    }
+  }
 
   // Calculate reference baseline (MSRP or National Used Avg)
   const referenceBaseline = safeVerdict.fair_value_range?.high || metrics.national_avg
@@ -242,16 +397,31 @@ export function ProductIntelligencePanel({
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex-1 min-w-0">
               <div className="flex items-start justify-between gap-2 sm:block">
-                <CardTitle className="text-lg sm:text-xl font-semibold">
-                  {isBaseline 
-                    ? 'Price Trends'
-                    : (
-                      <>
-                        <span className="hidden sm:inline">Price Trends — {query} ({region_key === 'US' ? 'National' : region_key})</span>
-                        <span className="sm:hidden">Price Trends</span>
-                      </>
-                    )}
-                </CardTitle>
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-lg sm:text-xl font-semibold">
+                    {isBaseline 
+                      ? 'Price Trends'
+                      : (
+                        <>
+                          <span className="hidden sm:inline">Price Trends — {query} ({region_key === 'US' ? 'National' : region_key})</span>
+                          <span className="sm:hidden">Price Trends</span>
+                        </>
+                      )}
+                  </CardTitle>
+                  {/* Data Integrity Badge */}
+                  {!isBaseline && (
+                    <Badge
+                      variant={
+                        dataIntegrity === 'verified' ? 'default' :
+                        dataIntegrity === 'unavailable' ? 'secondary' : 'danger'
+                      }
+                      className="text-xs"
+                    >
+                      {dataIntegrity === 'verified' ? 'Verified' :
+                       dataIntegrity === 'unavailable' ? 'Unavailable' : 'Error'}
+                    </Badge>
+                  )}
+                </div>
                 {/* Mobile: Actions dropdown in title row */}
                 <div className="sm:hidden">
                   <ActionsDropdown
@@ -292,7 +462,7 @@ export function ProductIntelligencePanel({
                 onRemoveRecent={removeRecent}
                 onSetDefault={(mode) => setDefault(mode, undefined)}
               />
-              <div className="flex gap-1.5 bg-surface2 p-1 rounded-lg border border-subtle">
+              <div className="flex gap-1.5 bg-surface2 p-1 rounded-lg border border-subtle flex-wrap">
                 {timeframes.map(tf => (
                   <Button
                     key={tf}
@@ -314,7 +484,7 @@ export function ProductIntelligencePanel({
               />
             </div>
           </div>
-          {/* Mobile: Controls row 2 */}
+          {/* Mobile: Location input row */}
           <div className="flex sm:hidden items-center gap-2 overflow-x-auto -mx-2 px-2 pb-1 scrollbar-none">
             <LocationSwitcher
               value={locationMode}
@@ -323,19 +493,44 @@ export function ProductIntelligencePanel({
               onRemoveRecent={removeRecent}
               onSetDefault={(mode) => setDefault(mode, undefined)}
             />
-            <div className="flex gap-1.5 bg-surface2 p-1 rounded-lg border border-subtle flex-shrink-0">
-              {timeframes.map(tf => (
-                <Button
-                  key={tf}
-                  variant={timeframe === tf ? 'primary' : 'ghost'}
-                  size="sm"
-                  onClick={() => onTimeframeChange(tf)}
-                  className={timeframe === tf ? 'shadow-sm' : ''}
-                >
-                  {tf}
-                </Button>
-              ))}
+            {/* Location input for ZIP/City */}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <Input
+                type="text"
+                placeholder="ZIP or City"
+                value={locationInput}
+                onChange={(e) => setLocationInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleApplyLocation()}
+                className="w-20 text-xs"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleApplyLocation}
+                className="text-xs"
+              >
+                Apply
+              </Button>
             </div>
+          </div>
+          {/* Desktop: Location input */}
+          <div className="hidden sm:flex items-center gap-2">
+            <Input
+              type="text"
+              placeholder="ZIP or City"
+              value={locationInput}
+              onChange={(e) => setLocationInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleApplyLocation()}
+              className="w-24 text-xs"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleApplyLocation}
+              className="text-xs"
+            >
+              Apply
+            </Button>
           </div>
         </CardHeader>
         <CardContent>
@@ -344,12 +539,114 @@ export function ProductIntelligencePanel({
             nationalUsedAvg={metrics.national_avg}
             shippableAvg={metrics.shippable_avg}
           />
-          <PriceChart
-            key={`chart-${scanResult.scan_id}-${timeframe}-${locationMode.kind === 'national' ? 'national' : locationMode.kind === 'zip' ? locationMode.zip : `${locationMode.city}-${locationMode.region}`}`}
-            timeframe={timeframe}
-            msrp={referenceBaseline}
-            timeSeriesData={timeSeriesData}
-          />
+          {trendsLoading && (
+            <div className="w-full h-[320px] sm:h-[420px] lg:h-[500px] flex items-center justify-center border border-border rounded">
+              <div className="text-center text-muted-foreground">
+                <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-2"></div>
+                <p className="text-sm">Loading trend history...</p>
+              </div>
+            </div>
+          )}
+          {!trendsLoading && trendsError && (
+            <div className="w-full h-[320px] sm:h-[420px] lg:h-[500px] flex items-center justify-center border border-border rounded">
+              <div className="text-center text-muted-foreground px-4 max-w-md">
+                <p className="text-sm font-medium mb-2">Failed to load trends</p>
+                <p className="text-xs text-muted-foreground/60 mb-3">
+                  {trendsError.code === 'UNAUTHORIZED' 
+                    ? 'Not authorized — sign in to view trend history.'
+                    : trendsError.code === 'NOT_FOUND' || trendsError.code === 'CONFIG_ERROR'
+                    ? 'Trends service not deployed.'
+                    : trendsError.code === 'FETCH_ERROR' && trendsError.message.includes('500')
+                    ? 'Trends service error — check Supabase logs.'
+                    : trendsError.message}
+                </p>
+                {/* Debug details */}
+                {(trendsError as any).debug && (
+                  <div className="text-xs text-muted-foreground/40 font-mono mb-3 space-y-0.5">
+                    <div>Endpoint: {(trendsError as any).debug.endpoint || 'N/A'}</div>
+                    <div>Status: {(trendsError as any).debug.status || 'N/A'}</div>
+                    {(trendsError as any).requestId && (
+                      <div>Request ID: {(trendsError as any).requestId}</div>
+                    )}
+                  </div>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setTrendsError(null)
+                    // Trigger refetch by updating a dependency
+                    const currentLocation = appliedLocation || (locationMode.kind === 'national' ? { type: 'none' as const } : locationMode.kind === 'zip' ? { type: 'zip' as const, value: locationMode.zip } : { type: 'city' as const, value: `${locationMode.city}, ${locationMode.region || ''}`.trim() })
+                    setAppliedLocation(currentLocation)
+                  }}
+                >
+                  Retry
+                </Button>
+              </div>
+            </div>
+          )}
+          {!trendsLoading && !trendsError && trendPoints.length < 2 && (
+            <div className="w-full h-[320px] sm:h-[420px] lg:h-[500px] flex items-center justify-center border border-border rounded">
+              <div className="text-center text-muted-foreground px-4">
+                <p className="text-sm font-medium mb-1">History required</p>
+                <p className="text-xs text-muted-foreground/60 mb-3">
+                  Run 2+ scans over time to unlock trendlines
+                </p>
+                <div className="flex flex-col sm:flex-row gap-2 justify-center">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => {
+                      // Trigger a new scan by calling the scan handler
+                      // This will be handled by the parent component
+                      window.dispatchEvent(new CustomEvent('trigger-scan'))
+                    }}
+                  >
+                    Run another scan
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      // Placeholder for extension CTA
+                      window.open('https://chrome.google.com/webstore', '_blank')
+                    }}
+                  >
+                    Enable Auto-Scan via Chrome Extension
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+          {!trendsLoading && !trendsError && trendPoints.length >= 2 && timeSeriesData.length > 0 && (
+            <PriceChart
+              key={`chart-${scanResult.scan_id}-${timeframe}-${appliedLocation?.type || locationMode.kind}-${appliedLocation?.value || (locationMode.kind === 'national' ? 'national' : locationMode.kind === 'zip' ? locationMode.zip : `${locationMode.city}-${locationMode.region}`)}`}
+              timeframe={timeframe}
+              msrp={referenceBaseline}
+              timeSeriesData={timeSeriesData}
+            />
+          )}
+          {!trendsLoading && !trendsError && trendPoints.length >= 2 && timeSeriesData.length === 0 && (
+            <div className="w-full h-[320px] sm:h-[420px] lg:h-[500px] flex items-center justify-center border border-border rounded">
+              <div className="text-center text-muted-foreground px-4">
+                <p className="text-sm font-medium mb-1">No valid trend data in this range</p>
+                <p className="text-xs text-muted-foreground/60">Try a different timeframe or run more scans</p>
+              </div>
+            </div>
+          )}
+          {!trendsLoading && !trendsError && trendPoints.length >= 2 && (
+            <div className="mt-2 text-xs text-muted-foreground text-center">
+              <span className="font-mono">Filtered: {timeSeriesData.length} points</span>
+              <span className="mx-2">•</span>
+              <span>Range: {timeframe}</span>
+              {import.meta.env.DEV && (
+                <>
+                  <span className="mx-2">•</span>
+                  <span>{trendPoints.length} scan{trendPoints.length !== 1 ? 's' : ''}</span>
+                </>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 

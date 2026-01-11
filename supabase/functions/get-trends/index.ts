@@ -1,309 +1,274 @@
 // Supabase Edge Function: get-trends
-// Returns historical price trends for a product/query/scope combination
+// Fetches real scan history trends from scan_history table
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0'
 import { corsHeaders } from '../_shared/cors.ts'
 
 interface TrendRequest {
-  query: string
-  scope?: string // 'national' | 'local'
-  region_key?: string
-  rangeKey: '7d' | '30d' | '90d' | '180d' | '1y' | '2y' | '5y' | 'all'
-  sources?: string[] // Optional: filter by source types
+  scan_key: string
+  rangeDays?: number // e.g., 7, 30, 90, 180, 365, 730, 1825, or null for all
+  location_key?: string // Optional filter
+  sources?: string[] // Optional filter
+  user_id?: string // Optional user filter
 }
 
 interface TrendPoint {
-  t: string // ISO date string
-  price: number
-  source?: string
-  sampleSize?: number
+  t: string // ISO timestamp
+  msrp?: number | null
+  national_used_avg?: number | null
+  ebay_used_avg?: number | null
+  shippable_avg?: number | null
+  local_avg?: number | null
 }
 
-interface TrendsResponseSuccess {
+interface TrendResponse {
   ok: true
-  series: {
-    msrp?: TrendPoint[]
-    nationalUsed?: TrendPoint[]
-    localUsed?: TrendPoint[]
-    shippable?: TrendPoint[]
-  }
+  points: TrendPoint[]
   meta: {
-    range: string
-    points: number
-    sources: string[]
-    sampleSize?: number
-    lastUpdated?: string
+    rangeDays: number | null
+    count: number
+    firstAt: string | null
+    lastAt: string | null
   }
-}
-
-interface TrendsResponseError {
+} | {
   ok: false
-  error: {
-    code: 'NO_DATA' | 'NOT_ENOUGH_HISTORY' | 'MISCONFIGURED' | 'VALIDATION_FAILED' | 'UNKNOWN'
-    message: string
-  }
+  code: string
+  message: string
 }
 
-type TrendsResponse = TrendsResponseSuccess | TrendsResponseError
-
-function rangeToSinceISO(rangeKey: string): string | null {
-  if (rangeKey === 'all') return null
-  
-  const now = new Date()
-  let cutoff = new Date(now)
-  
-  switch (rangeKey) {
-    case '7d':
-      cutoff.setDate(cutoff.getDate() - 7)
-      break
-    case '30d':
-      cutoff.setDate(cutoff.getDate() - 30)
-      break
-    case '90d':
-      cutoff.setDate(cutoff.getDate() - 90)
-      break
-    case '180d':
-      cutoff.setDate(cutoff.getDate() - 180)
-      break
-    case '1y':
-      cutoff.setFullYear(cutoff.getFullYear() - 1)
-      break
-    case '2y':
-      cutoff.setFullYear(cutoff.getFullYear() - 2)
-      break
-    case '5y':
-      cutoff.setFullYear(cutoff.getFullYear() - 5)
-      break
-    default:
-      return null
+/**
+ * Convert timeframe string to rangeDays
+ */
+function timeframeToRangeDays(timeframe: string): number | null {
+  switch (timeframe) {
+    case '7d': return 7
+    case '30d': return 30
+    case '90d': return 90
+    case '180d': return 180
+    case '1y': return 365
+    case '2y': return 730
+    case '5y': return 1825
+    case 'all': return null // null means no limit
+    default: return 90 // default to 90 days
   }
-  
-  return cutoff.toISOString()
 }
 
 serve(async (req) => {
+  // Handle CORS
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
 
+  const requestId = crypto.randomUUID()
+  const startTime = Date.now()
+
   try {
-    const body = await req.json() as TrendRequest
-    const { query, scope = 'national', region_key = 'US', rangeKey, sources } = body
-
-    if (!query || !query.trim()) {
+    // Parse request body with error handling
+    let body: TrendRequest & { timeframe?: string }
+    try {
+      body = await req.json()
+    } catch (parseError) {
+      console.error(`[${requestId}] JSON parse error:`, parseError)
       return new Response(
         JSON.stringify({
           ok: false,
-          error: { code: 'VALIDATION_FAILED', message: 'Query is required' }
-        } as TrendsResponseError),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          code: 'INVALID_REQUEST',
+          message: 'Invalid JSON in request body',
+          requestId,
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
       )
     }
 
-    // Check if Supabase is configured
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')
-    const supabaseKey = Deno.env.get('SUPABASE_ANON_KEY')
+    const { scan_key, rangeDays: explicitRangeDays, location_key, sources, user_id, timeframe } = body
+
+    if (!scan_key || !scan_key.trim()) {
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          code: 'INVALID_REQUEST',
+          message: 'scan_key is required',
+          requestId,
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
+    // Initialize Supabase client with service role for admin access
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') || ''
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
     
-    if (!supabaseUrl || !supabaseKey) {
+    if (!supabaseUrl || !supabaseServiceKey) {
       return new Response(
         JSON.stringify({
           ok: false,
-          error: { code: 'MISCONFIGURED', message: 'Database not configured' }
-        } as TrendsResponseError),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          code: 'CONFIG_ERROR',
+          message: 'Trends service not deployed',
+        }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
       )
     }
 
-    const supabase = createClient(supabaseUrl, supabaseKey)
+    const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-    // Normalize query (lowercase, trim)
-    const normalizedQuery = query.trim().toLowerCase()
+    // Determine rangeDays from explicit value or timeframe string
+    const rangeDays = explicitRangeDays !== undefined 
+      ? explicitRangeDays 
+      : (timeframe ? timeframeToRangeDays(timeframe) : 90)
 
-    // Find product by canonical name or query match
-    const { data: products, error: productError } = await supabase
-      .from('products')
-      .select('id, canonical_name, msrp')
-      .or(`canonical_name.ilike.%${normalizedQuery}%,name.ilike.%${normalizedQuery}%`)
-      .limit(1)
+    // Log request context for debugging
+    console.log(`[${requestId}] Fetching trends:`, {
+      scan_key: scan_key.trim(),
+      rangeDays,
+      location_key,
+      sources: sources?.length || 0,
+      user_id: user_id || 'anonymous',
+    })
 
-    if (productError || !products || products.length === 0) {
-      return new Response(
-        JSON.stringify({
-          ok: false,
-          error: { code: 'NO_DATA', message: 'No product found for this query' }
-        } as TrendsResponseError),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+    // Build query
+    let queryBuilder = supabase
+      .from('scan_history')
+      .select('*')
+      .eq('scan_key', scan_key.trim())
+      .order('created_at', { ascending: true })
+
+    // Filter by location_key if provided
+    if (location_key) {
+      queryBuilder = queryBuilder.eq('location_key', location_key)
     }
 
-    const product = products[0]
-    const productId = product.id
-
-    // Build date filter
-    const sinceISO = rangeToSinceISO(rangeKey)
-    const dateFilter = sinceISO 
-      ? { date: { gte: sinceISO.split('T')[0] } } // Extract date part
-      : {}
-
-    // Query price_points table for historical data
-    let pricePointsQuery = supabase
-      .from('price_points')
-      .select('date, avg_price, sample_size, source_type, region_key, condition')
-      .eq('product_id', productId)
-      .order('date', { ascending: true })
-
-    if (sinceISO) {
-      pricePointsQuery = pricePointsQuery.gte('date', sinceISO.split('T')[0])
-    }
-
+    // Filter by sources if provided
     if (sources && sources.length > 0) {
-      pricePointsQuery = pricePointsQuery.in('source_type', sources)
+      queryBuilder = queryBuilder.contains('sources', sources)
     }
 
-    if (scope === 'national') {
-      pricePointsQuery = pricePointsQuery.eq('region_key', 'US')
-    } else if (region_key && region_key !== 'US') {
-      pricePointsQuery = pricePointsQuery.eq('region_key', region_key)
+    // Filter by user_id if provided
+    if (user_id) {
+      queryBuilder = queryBuilder.eq('user_id', user_id)
     }
 
-    const { data: pricePoints, error: pointsError } = await pricePointsQuery
+    // Apply date range filter
+    if (rangeDays !== null) {
+      const startDate = new Date()
+      startDate.setDate(startDate.getDate() - rangeDays)
+      queryBuilder = queryBuilder.gte('created_at', startDate.toISOString())
+    } else {
+      // For 'all', use a safe max (10 years)
+      const maxDate = new Date()
+      maxDate.setFullYear(maxDate.getFullYear() - 10)
+      queryBuilder = queryBuilder.gte('created_at', maxDate.toISOString())
+    }
 
-    if (pointsError) {
-      console.error('Error querying price_points:', pointsError)
+    const { data, error } = await queryBuilder
+
+    if (error) {
+      console.error(`[${requestId}] Database error fetching scan_history:`, {
+        error: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+        scan_key: scan_key.trim(),
+        rangeDays,
+      })
       return new Response(
         JSON.stringify({
           ok: false,
-          error: { code: 'UNKNOWN', message: 'Database query failed' }
-        } as TrendsResponseError),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          code: 'DATABASE_ERROR',
+          message: `Database error: ${error.message || 'Unknown database error'}`,
+          requestId,
+        }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
       )
     }
 
-    if (!pricePoints || pricePoints.length === 0) {
+    if (!data || !Array.isArray(data)) {
+      console.log(`[${requestId}] No data found:`, { scan_key: scan_key.trim(), rangeDays, count: 0 })
       return new Response(
         JSON.stringify({
-          ok: false,
-          error: { code: 'NO_DATA', message: 'No historical price data available' }
-        } as TrendsResponseError),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          ok: true,
+          points: [],
+          meta: {
+            rangeDays: rangeDays,
+            count: 0,
+            firstAt: null,
+            lastAt: null,
+          },
+          requestId,
+        }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
       )
     }
 
-    if (pricePoints.length < 2) {
-      return new Response(
-        JSON.stringify({
-          ok: false,
-          error: { code: 'NOT_ENOUGH_HISTORY', message: 'Not enough data points. Run more scans to build history.' }
-        } as TrendsResponseError),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
+    // Map to TrendPoint format
+    const points: TrendPoint[] = data.map((row: any) => ({
+      t: row.created_at,
+      msrp: typeof row.msrp === 'number' ? row.msrp : null,
+      national_used_avg: typeof row.national_used_avg === 'number' ? row.national_used_avg : null,
+      ebay_used_avg: typeof row.ebay_used_avg === 'number' ? row.ebay_used_avg : null,
+      shippable_avg: typeof row.shippable_avg === 'number' ? row.shippable_avg : null,
+      local_avg: typeof row.local_avg === 'number' ? row.local_avg : null,
+    }))
 
-    // Group points by series type
-    const series: TrendsResponseSuccess['series'] = {
-      msrp: product.msrp ? [{
-        t: new Date().toISOString(),
-        price: Number(product.msrp),
-        source: 'msrp'
-      }] : undefined,
-      nationalUsed: [],
-      localUsed: [],
-      shippable: []
-    }
+    const firstAt = points.length > 0 ? points[0].t : null
+    const lastAt = points.length > 0 ? points[points.length - 1].t : null
 
-    const sourcesSet = new Set<string>()
-    let totalSampleSize = 0
-
-    for (const point of pricePoints) {
-      const date = point.date
-      const price = Number(point.avg_price)
-      const sampleSize = point.sample_size || 0
-      const sourceType = point.source_type
-      const pointRegion = point.region_key
-      const condition = point.condition
-
-      // Validate price
-      if (!Number.isFinite(price) || price < 0 || price > 1000000) {
-        continue // Skip invalid points
-      }
-
-      sourcesSet.add(sourceType)
-      totalSampleSize += sampleSize
-
-      const trendPoint: TrendPoint = {
-        t: date,
-        price,
-        source: sourceType,
-        sampleSize
-      }
-
-      // Categorize by region and source
-      if (pointRegion === 'US' && (condition === 'used' || !condition)) {
-        series.nationalUsed!.push(trendPoint)
-      } else if (pointRegion !== 'US' && (condition === 'used' || !condition)) {
-        series.localUsed!.push(trendPoint)
-      }
-
-      // Shippable = non-local-marketplace sources
-      if (sourceType !== 'facebook_marketplace' && sourceType !== 'offerup') {
-        series.shippable!.push(trendPoint)
-      }
-    }
-
-    // Remove empty series
-    if (series.nationalUsed!.length === 0) delete series.nationalUsed
-    if (series.localUsed!.length === 0) delete series.localUsed
-    if (series.shippable!.length === 0) delete series.shippable
-    if (!series.msrp || series.msrp.length === 0) delete series.msrp
-
-    // Check if we have any valid series
-    const hasAnySeries = series.nationalUsed || series.localUsed || series.shippable || series.msrp
-    if (!hasAnySeries) {
-      return new Response(
-        JSON.stringify({
-          ok: false,
-          error: { code: 'NO_DATA', message: 'No valid price data found' }
-        } as TrendsResponseError),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    // Get total point count
-    const totalPoints = (series.nationalUsed?.length || 0) +
-                       (series.localUsed?.length || 0) +
-                       (series.shippable?.length || 0) +
-                       (series.msrp?.length || 0)
-
-    // Get last updated date
-    const lastPoint = pricePoints[pricePoints.length - 1]
-    const lastUpdated = lastPoint?.date
-
-    const response: TrendsResponseSuccess = {
-      ok: true,
-      series,
-      meta: {
-        range: rangeKey,
-        points: totalPoints,
-        sources: Array.from(sourcesSet),
-        sampleSize: totalSampleSize,
-        lastUpdated
-      }
-    }
+    const duration = Date.now() - startTime
+    console.log(`[${requestId}] Success:`, {
+      scan_key: scan_key.trim(),
+      rangeDays,
+      count: points.length,
+      duration: `${duration}ms`,
+    })
 
     return new Response(
-      JSON.stringify(response),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      JSON.stringify({
+        ok: true,
+        points,
+        meta: {
+          rangeDays: rangeDays,
+          count: points.length,
+          firstAt,
+          lastAt,
+        },
+        requestId,
+      }),
+      {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      }
     )
-
   } catch (error) {
-    console.error('Error in get-trends:', error)
+    const duration = Date.now() - startTime
+    console.error(`[${requestId}] Unexpected error (${duration}ms):`, {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    })
     return new Response(
       JSON.stringify({
         ok: false,
-        error: { code: 'UNKNOWN', message: error instanceof Error ? error.message : 'Unknown error' }
-      } as TrendsResponseError),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        code: 'UNKNOWN_ERROR',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        requestId,
+      }),
+      {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      }
     )
   }
 })
-

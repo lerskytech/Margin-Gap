@@ -73,11 +73,12 @@ These are server-side only and should **NOT** be in your `.env` file. Set them i
 
 | Variable | Required | Provider | Description |
 |----------|----------|----------|-------------|
-| `EBAY_APP_ID` | Yes (for eBay) | eBay | eBay Application ID |
+| `EBAY_APP_ID` | Yes (for eBay) | eBay | eBay Application ID (required for `get-trends` Edge Function) |
 | `EBAY_OAUTH_CLIENT_ID` | Yes (for eBay) | eBay | eBay OAuth Client ID |
 | `EBAY_OAUTH_CLIENT_SECRET` | Yes (for eBay) | eBay | eBay OAuth Client Secret |
 | `EBAY_MARKETPLACE_ID` | No | eBay | Marketplace ID (default: `EBAY_US`) |
 | `EBAY_GLOBAL_ID` | No | eBay | Global ID (default: `EBAY-US`) |
+| `EBAY_ENV` | No | eBay | Environment: `production` or `sandbox` (default: `production`) |
 | `FB_SCRAPER_PROXY_URL` | Future | Facebook | Proxy URL for Facebook Marketplace scraping |
 | `MERCARI_PROXY_URL` | Future | Mercari | Proxy URL for Mercari API |
 | `OFFERUP_PROXY_URL` | Future | OfferUp | Proxy URL for OfferUp API |
@@ -169,14 +170,25 @@ The eBay provider uses eBay's official Browse API (for active listings) and Find
    - Create an app to get OAuth credentials
 
 2. **Configure Supabase Edge Functions:**
-   - Deploy the Edge Functions: `supabase functions deploy ebay-search` and `supabase functions deploy ebay-sold`
+   - Deploy the Edge Functions: 
+     ```bash
+     supabase functions deploy ebay-search
+     supabase functions deploy ebay-sold
+     supabase functions deploy get-trends
+     ```
    - In Supabase Dashboard > Edge Functions > Settings, set these environment variables:
-     - `EBAY_APP_ID` - Your eBay App ID
+     - `EBAY_APP_ID` - Your eBay App ID (required for `get-trends` function)
      - `EBAY_OAUTH_CLIENT_ID` - Your eBay OAuth Client ID
      - `EBAY_OAUTH_CLIENT_SECRET` - Your eBay OAuth Client Secret
      - `EBAY_ENV` - `production` or `sandbox` (default: `production`)
      - `EBAY_MARKETPLACE_ID` - Marketplace ID (default: `EBAY_US`)
      - `EBAY_GLOBAL_ID` - Global ID (default: `EBAY-US`)
+   
+   **Note for Real-Time Trends:**
+   - The `get-trends` Edge Function fetches real-time price trends from eBay sold listings
+   - Requires `EBAY_APP_ID` to be set (uses eBay Finding API)
+   - Trends are bucketed by day/week/month based on selected timeframe
+   - If trends are unavailable, the UI shows "Trends unavailable for this source yet"
 
 3. **Local Development:**
    ```bash

@@ -136,3 +136,207 @@ Actions panel showed "Sign in to activate" even when authenticated, and buttons 
 4. Test alert creation and email delivery
 5. Implement extension auth bridging (if needed)
 
+---
+
+## Price Trends Fix: Real Data + Working Timeframe (2024-01-XX)
+
+### Changes Summary
+- Fixed Price Trends to use real scan history from `scan_trend_points` table
+- Timeframe selection (7d/30d/90d/etc) now actually filters and redraws chart
+- Removed double-filtering bug (data was filtered in fetch AND in buildChartSeries)
+- Added AbortController to cancel in-flight requests when timeframe changes
+- Removed fake/fallback data behavior
+- Added proper empty/error states with actionable messages
+
+### How Trends Work
+1. **Data Source**: `scan_trend_points` table stores one point per successful scan
+2. **On Scan Success**: If scan has real data (sample_size > 0), insert into `scan_trend_points` with:
+   - query, scope, location_type/value
+   - series JSONB: { msrp, national_used_avg, shippable_avg, local_avg }
+3. **Trend Fetch**: `fetchTrendHistory()` queries `scan_trend_points` filtered by:
+   - query + scope + location (matches current scan)
+   - timeframe (created_at >= startDate based on timeframe)
+   - user_id (if authenticated)
+4. **Chart Rendering**: Only renders lines when >= 2 points exist for a series
+
+### Testing Instructions
+
+#### Quick Test (3+ scans)
+1. Run a scan for query "book" (or any product)
+2. Wait a few seconds, then run the same scan again (same query, same location)
+3. Run it a third time
+4. **Expected**: Chart should show 3 points connected by lines
+5. Click timeframe buttons (7d → 30d → 90d → all)
+6. **Expected**: Chart should update immediately, showing different point counts
+7. Check meta text below chart: "Filtered: X points • Range: Y • Z scans"
+
+#### Timeframe Filtering Test
+1. With 3+ scans for same query:
+   - Select "7d" → Should show only scans from last 7 days
+   - Select "30d" → Should show scans from last 30 days (more points if scans are older)
+   - Select "all" → Should show all scans
+2. **Expected**: Point count in meta text changes, chart redraws
+
+#### Empty State Test
+1. Run only 1 scan for a query
+2. **Expected**: Shows "Not enough history yet" with "Run another scan" button
+3. No chart should render (no misleading single dot)
+
+#### Error State Test
+1. Disable Supabase (remove env vars temporarily)
+2. **Expected**: Shows "Failed to load trends" with "Trends unavailable (backend not configured)" message
+3. No fake data should appear
+
+### Files Changed
+- `src/services/trendHistory.ts` - Fetch from scan_trend_points with timeframe filtering
+- `src/ui/ProductIntelligencePanel.tsx` - Use scan history, add AbortController, proper states
+- `src/features/charts/buildSeries.ts` - Remove double-filtering, remove fake fallback data
+- `src/ui/PriceChart.tsx` - Remove timeframe from deps (data pre-filtered)
+- `src/features/scans/scanService.ts` - Insert into scan_trend_points on successful scan
+- `supabase/migrations/20240102000000_add_scan_trend_points.sql` - Table schema
+
+### Key Fixes
+1. **Double-filtering removed**: Data is filtered once in `fetchTrendHistory`, not again in `buildChartSeries`
+2. **Timeframe in request key**: Chart key includes timeframe, ensuring re-render on change
+3. **AbortController**: Cancels in-flight requests when timeframe/location changes
+4. **No fake data**: Removed fallback logic that showed single point when filtering removed all data
+5. **Proper validation**: Only insert trend points when scan has real data (sample_size > 0)
+
+---
+
+## Real Trend Data Pipeline + Timeframe Fix (2024-01-XX)
+
+### Changes Summary
+- Created `scan_history` table for durable time-series storage
+- Updated scan Edge Function to insert into `scan_history` on successful scans
+- Rewrote `get-trends` Edge Function to fetch from `scan_history` (not external API)
+- Fixed timeframe selection to actually filter and redraw chart
+- Added data integrity badge (Verified/Unavailable/Error)
+- Improved error messages with specific actionable text
+- Fixed header overlap with 3-column grid layout
+- Added proper empty states with CTAs
+
+### Database Schema
+- **Table**: `scan_history`
+- **Columns**: id, created_at, user_id, user_email, scan_key, query, scope, location_key, sources[], msrp, national_used_avg, local_avg, shippable_avg, ebay_used_avg, sample_size, source_count, confidence
+- **Indexes**: (scan_key, created_at DESC), (user_id, created_at DESC), (query, created_at DESC)
+
+### How It Works
+1. **On Scan Success**: Edge Function inserts one row into `scan_history` with computed metrics
+2. **Trend Fetch**: `get-trends` Edge Function queries `scan_history` filtered by:
+   - scan_key (query + scope + sources + location)
+   - rangeDays (from timeframe: 7d=7, 30d=30, 90d=90, 180d=180, 1y=365, 2y=730, 5y=1825, all=null)
+   - location_key (optional)
+   - user_id (optional)
+3. **Chart Rendering**: Only renders lines when >= 2 points exist for a series
+
+### Testing Instructions
+
+#### Quick Test (3+ scans)
+1. Run a scan for query "book" (or any product)
+2. Wait a few seconds, then run the same scan again (same query, same location)
+3. Run it a third time
+4. **Expected**: Chart should show 3 points connected by lines
+5. Click timeframe buttons (7d → 30d → 90d → all)
+6. **Expected**: Chart should update immediately, showing different point counts
+7. Check meta text below chart: "Filtered: X points • Range: Y"
+
+#### Timeframe Filtering Test
+1. With 3+ scans for same query:
+   - Select "7d" → Should show only scans from last 7 days
+   - Select "30d" → Should show scans from last 30 days (more points if scans are older)
+   - Select "all" → Should show all scans
+2. **Expected**: Point count in meta text changes, chart redraws immediately
+
+#### Empty State Test
+1. Run only 1 scan for a query
+2. **Expected**: Shows "History required" with "Run another scan" and "Enable Auto-Scan via Chrome Extension" buttons
+3. No chart should render (no misleading single dot)
+
+#### Error State Test
+1. Disable Supabase (remove env vars temporarily)
+2. **Expected**: Shows "Failed to load trends" with "Trends service not deployed" message
+3. No fake data should appear
+
+#### Data Integrity Badge Test
+1. With real scan data: Badge shows "Verified" (green)
+2. With no data: Badge shows "Unavailable" (gray)
+3. With fetch error: Badge shows "Error" (red)
+
+### Files Changed
+- `supabase/migrations/20240103000000_add_scan_history.sql` - New table schema
+- `supabase/functions/scan-product/index.ts` - Insert into scan_history on scan success
+- `supabase/functions/get-trends/index.ts` - Rewritten to fetch from scan_history
+- `src/lib/scanKey.ts` - New utility for computing stable scan_key
+- `src/services/trends.ts` - New service to fetch from get-trends Edge Function
+- `src/ui/ProductIntelligencePanel.tsx` - Use new trends service, add data integrity badge, fix error messages
+- `src/components/layout/TopBar.tsx` - 3-column grid layout (already fixed)
+
+### Key Improvements
+1. **Real data only**: No fake/mock/placeholder data - shows honest empty states
+2. **Timeframe works**: Changing timeframe immediately refetches and redraws chart
+3. **Specific errors**: Error messages are actionable (e.g., "Not authorized — sign in", "Trends service not deployed")
+4. **Data integrity badge**: Shows Verified/Unavailable/Error status
+5. **Header fixed**: 3-column grid prevents overlap on desktop
+6. **Mobile responsive**: Timeframe buttons wrap, location input works on mobile
+
+---
+
+## Header Overlap Fix + Real Price Trends (2024-01-XX)
+
+### Changes Summary
+- Fixed desktop header overlap with 3-column grid layout
+- Created `price_points` table with `scan_key` for time-series tracking
+- Updated scan Edge Function to insert price_points on successful scans
+- Chart now fetches real data from `price_points` instead of scan history
+- Added empty state when < 2 data points (no fake dots)
+- Fixed timeframe filtering to actually filter and redraw chart
+
+### Test Checklist
+
+#### Desktop Header (1280px+ width)
+- [ ] Search bar, location selector, and scan button are in middle column
+- [ ] Pricing/Sign In/Sign Out buttons are in right column
+- [ ] No overlap between columns at 1280px, 1440px, 1920px widths
+- [ ] Debug button hidden on md, visible on lg+ (if applicable)
+- [ ] Nav cluster wraps gracefully below 1024px if needed
+
+#### Timeframe Filtering
+- [ ] Clicking timeframe buttons (7d, 30d, 90d, etc.) immediately redraws chart
+- [ ] Chart shows only data points within selected timeframe
+- [ ] "Data depth: X scans • Range: Y" metadata updates when timeframe changes
+- [ ] Switching from "all" to "7d" filters correctly
+- [ ] Switching from "7d" to "30d" shows more points
+
+#### Real Price Trends (No Fake Data)
+- [ ] With only 1 scan: Chart shows empty state "Not enough history to draw trend"
+- [ ] No isolated dots appear when < 2 points
+- [ ] After 3+ scans over time: Lines appear on chart
+- [ ] Chart lines connect points chronologically
+- [ ] No "Sample market data shown" or mock data appears
+
+#### Data Persistence
+- [ ] Run a scan → Check Supabase `price_points` table → Record exists with correct `scan_key`
+- [ ] Run same query again → New `price_points` record created with same `scan_key`
+- [ ] Chart shows both points connected by a line
+- [ ] `scan_key` format: `query|scope|sources|location_type:location_value`
+
+#### Build & Type Safety
+- [ ] `npm run build` passes
+- [ ] `npx tsc --noEmit` passes (no type errors)
+- [ ] No new lint errors in modified files
+
+### Files Changed
+- `src/components/layout/TopBar.tsx` - 3-column grid layout
+- `supabase/migrations/20240101000000_add_price_points_scan_key.sql` - New table columns
+- `supabase/functions/scan-product/index.ts` - Insert price_points on scan
+- `src/services/pricePointsService.ts` - Fetch price_points by scan_key
+- `src/ui/ProductIntelligencePanel.tsx` - Fetch real data, show data depth
+- `src/ui/PriceChart.tsx` - Empty state when < 2 points, filter series
+
+### Database Migration
+Run in Supabase SQL Editor:
+```sql
+-- See: supabase/migrations/20240101000000_add_price_points_scan_key.sql
+```
+

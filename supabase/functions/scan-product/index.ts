@@ -33,10 +33,10 @@ serve(async (req) => {
       )
     }
 
-    // Initialize Supabase client
+    // Initialize Supabase client with service role for admin access
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || ''
-    const supabaseKey = Deno.env.get('SUPABASE_ANON_KEY') || ''
-    const supabase = createClient(supabaseUrl, supabaseKey)
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || Deno.env.get('SUPABASE_ANON_KEY') || ''
+    const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
     // Call providers in parallel (eBay is primary, others optional for speed)
     const providerPromises = [
@@ -263,8 +263,8 @@ serve(async (req) => {
         }
 
         if (productId) {
-          // Save scan
-          await supabase
+          // Save scan and get scan_id
+          const { data: scanData, error: scanError } = await supabase
             .from('scans')
             .insert({
               user_id: user_id,
@@ -272,23 +272,98 @@ serve(async (req) => {
               query: query.trim(),
               region_key: region_key
             } as any)
+            .select('id')
+            .single()
 
-          // Save price points
-          if (aggregates.length > 0) {
-            const pricePoints = aggregates.map((agg: any) => ({
-              product_id: productId,
-              source_type: agg.source_type,
-              region_key: agg.region_key,
-              date: new Date().toISOString().split('T')[0],
-              avg_price: agg.avg_price,
-              min_price: agg.min_price,
-              max_price: agg.max_price,
-              median_price: agg.median_price,
-              sample_size: agg.sample_size,
-              condition: agg.condition
-            }))
+          const scanId = scanData?.id
 
-            await supabase.from('price_points').insert(pricePoints as any)
+          // Only insert into scan_history if we have real data (not baseline/mock)
+          if (aggregates.length > 0 && totalSampleSize > 0 && scanId) {
+            // Compute scan_key: query + scope + sources + location_key
+            const normalizedQuery = query.trim().toLowerCase()
+            const scope = region_key === 'US' ? 'national' : 'local'
+            const sourceTypes = [...new Set(aggregates.map((a: any) => a.source_type).filter(Boolean))].sort()
+            const locationKey = region_key === 'US' ? 'US' : 
+                              region_key.includes('zip:') ? `ZIP:${region_key.split(':')[2]}` :
+                              region_key.includes(':') ? `CITY:${region_key.split(':').slice(1).join(',')}` :
+                              region_key
+            const scanKey = `${normalizedQuery}|${scope}|${sourceTypes.join(',')}|${locationKey}`
+
+            // Extract metrics from aggregates
+            const nationalUsedAgg = aggregates.find((a: any) => 
+              a.region_key === 'US' && (a.condition === 'used' || !a.condition) && a.sample_size > 0
+            )
+            const ebayUsedAgg = aggregates.find((a: any) => 
+              a.source_type === 'ebay_active' && (a.condition === 'used' || !a.condition) && a.sample_size > 0
+            )
+            const shippableAgg = aggregates.find((a: any) => 
+              a.source_type !== 'facebook_marketplace' && a.source_type !== 'offerup' && a.sample_size > 0
+            )
+            const localAgg = aggregates.find((a: any) => 
+              a.region_key !== 'US' && (a.condition === 'used' || !a.condition) && a.sample_size > 0
+            )
+
+            const nationalUsedAvg = nationalUsedAgg?.avg_price || null
+            const ebayUsedAvg = ebayUsedAgg?.avg_price || null
+            const shippableAvg = shippableAgg?.avg_price || null
+            const localAvg = localAgg?.avg_price || null
+            const msrp = verdict.fair_value_range?.high || null
+
+            // Get user email if available (query profiles table)
+            let userEmail: string | null = null
+            if (user_id) {
+              try {
+                const { data: profileData } = await supabase
+                  .from('profiles')
+                  .select('email')
+                  .eq('id', user_id)
+                  .single()
+                userEmail = profileData?.email || null
+              } catch {
+                // Ignore error, continue without email
+              }
+            }
+
+            // Insert into scan_history
+            const { error: historyError } = await supabase
+              .from('scan_history')
+              .insert({
+                user_id: user_id,
+                user_email: userEmail,
+                scan_key: scanKey,
+                query: query.trim(),
+                scope: scope,
+                location_key: locationKey,
+                sources: sourceTypes,
+                msrp: msrp,
+                national_used_avg: nationalUsedAvg,
+                local_avg: localAvg,
+                shippable_avg: shippableAvg,
+                ebay_used_avg: ebayUsedAvg,
+                sample_size: totalSampleSize,
+                source_count: aggregates.length,
+                confidence: Math.round(confidence_score * 100)
+              } as any)
+
+            if (historyError) {
+              console.error('Error inserting scan_history:', historyError)
+              // Return error response instead of silently failing
+              return new Response(
+                JSON.stringify({
+                  error: 'Failed to save scan history',
+                  message: historyError.message,
+                  meta: {
+                    requestId,
+                    generatedAt,
+                    cacheHit: false
+                  }
+                }),
+                {
+                  status: 500,
+                  headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+                }
+              )
+            }
           }
         }
       } catch (error) {

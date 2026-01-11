@@ -1,5 +1,4 @@
 import type { PriceTimeSeriesPoint, Timeframe } from '@/lib/types'
-import { filterPointsByTimeframe } from '@/utils/timeframe'
 import { parseISO, subDays } from 'date-fns'
 
 export interface ChartSeries {
@@ -20,35 +19,21 @@ const SERIES_COLORS: Record<string, string> = {
 
 export function buildChartSeries(
   timeSeries: PriceTimeSeriesPoint[],
-  timeframe: Timeframe,
+  _timeframe: Timeframe, // Kept for API compatibility but data is pre-filtered
   visibleLines: Set<string>,
   msrp?: number
 ): ChartSeries[] {
-  // Filter data by timeframe using the utility function
-  // This ensures proper timestamp-based filtering and returns a new array reference
-  const filteredData = filterPointsByTimeframe(timeSeries, timeframe)
-  
-  // If filtering removed all data but we have points, show the most recent point (fallback)
-  // BUT: Only if we're not in 'all' mode (in 'all' mode, empty means truly no data)
-  let finalFilteredData: PriceTimeSeriesPoint[]
-  if (filteredData.length === 0 && timeSeries.length > 0 && timeframe !== 'all') {
-    const sorted = [...timeSeries].sort((a, b) => {
-      try {
-        const tsA = new Date(a.date).getTime()
-        const tsB = new Date(b.date).getTime()
-        return tsB - tsA // Most recent first
-      } catch {
-        return 0
-      }
-    })
-    if (sorted.length > 0) {
-      finalFilteredData = [sorted[0]]
-    } else {
-      finalFilteredData = []
+  // Data is already filtered by timeframe in fetchTrendHistory
+  // No need to filter again - use data as-is
+  // Only validate that points are valid
+  const finalFilteredData = timeSeries.filter(point => {
+    if (!point || !point.date) return false
+    // Ensure price is a valid number
+    if (typeof point.avg_price !== 'number' || !Number.isFinite(point.avg_price) || point.avg_price <= 0) {
+      return false
     }
-  } else {
-    finalFilteredData = filteredData
-  }
+    return true
+  })
 
   // Group by source type and region
   const seriesMap = new Map<string, PriceTimeSeriesPoint[]>()

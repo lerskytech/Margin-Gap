@@ -37,7 +37,9 @@ export function PriceChart({ timeframe, msrp, timeSeriesData }: PriceChartProps)
   const series = useMemo(
     () => {
       try {
-        const result = buildChartSeries(timeSeries, timeframe, visibleLines, msrp)
+        // Data is already filtered by timeframe in fetchTrendHistory
+        // Pass 'all' to buildChartSeries to avoid double-filtering
+        const result = buildChartSeries(timeSeries, 'all', visibleLines, msrp)
         if (!Array.isArray(result)) {
           return []
         }
@@ -49,7 +51,7 @@ export function PriceChart({ timeframe, msrp, timeSeriesData }: PriceChartProps)
         return []
       }
     },
-    [timeSeries, timeframe, visibleLines, msrp]
+    [timeSeries, visibleLines, msrp] // Removed timeframe from deps since data is pre-filtered
   )
 
   const toggleLine = (name: string) => {
@@ -128,9 +130,20 @@ export function PriceChart({ timeframe, msrp, timeSeriesData }: PriceChartProps)
     ? lastPoint[series[0].name]
     : null
   
-  const hasLimitedHistory = !Array.isArray(chartData) || chartData.length < 2
-  const hasData = Array.isArray(chartData) && chartData.length > 0
   const safeSeries = Array.isArray(series) ? series : []
+  
+  // Filter series to only those with >= 2 points (required for lines)
+  const validSeries = useMemo(() => {
+    return safeSeries.filter(s => {
+      if (!s || !s.visible) return false
+      const pointCount = Array.isArray(s.data) ? s.data.length : 0
+      return pointCount >= 2
+    })
+  }, [safeSeries])
+
+  // Check if we have enough data to draw lines
+  const hasEnoughData = validSeries.length > 0 && Array.isArray(chartData) && chartData.length > 0
+  const hasData = Array.isArray(chartData) && chartData.length > 0
   
   // Dev indicator: show filtered point count
   const filteredPointCount = useMemo(() => {
@@ -177,22 +190,15 @@ export function PriceChart({ timeframe, msrp, timeSeriesData }: PriceChartProps)
         })}
       </div>
       <div className="relative">
-        {!hasData && (
+        {!hasEnoughData && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-            <div className="text-center">
-              <p className="text-sm text-muted-foreground mb-1">No data yet</p>
-              <p className="text-xs text-muted-foreground/60">Run a scan to see price trends</p>
+            <div className="text-center px-4">
+              <p className="text-sm text-muted-foreground mb-1">Not enough history to draw trend</p>
+              <p className="text-xs text-muted-foreground/60">Run scans over time to build a timeline</p>
             </div>
           </div>
         )}
-        {hasLimitedHistory && hasData && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-            <p className="text-xs text-muted-foreground/70 font-mono bg-background/80 px-2 py-1 rounded">
-              Limited history — scan again to build timeline
-            </p>
-          </div>
-        )}
-        {hasData ? (
+        {hasEnoughData ? (
           <ResponsiveContainer width="100%" height={320} className="sm:h-[420px] lg:h-[500px]">
         <LineChart data={baselineData}>
           <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
@@ -251,7 +257,7 @@ export function PriceChart({ timeframe, msrp, timeSeriesData }: PriceChartProps)
               name="MSRP"
             />
           )}
-          {safeSeries.filter(s => s.visible).map(s => (
+          {validSeries.map(s => (
             <Line
               key={s.name}
               type="monotone"

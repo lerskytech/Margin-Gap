@@ -140,6 +140,46 @@ export async function scanProduct(options: ScanOptions): Promise<ScanResult> {
         await supabase.from('price_points').insert(pricePoints as any)
       }
 
+      // Save trend point if scan has real data (not baseline/mock)
+      // Only insert if we have aggregates with sample_size > 0
+      const totalSampleSize = allAggregates.reduce((sum, agg) => sum + (agg.sample_size || 0), 0)
+      if (totalSampleSize > 0 && allAggregates.length > 0) {
+        // Extract metrics from aggregates
+        const nationalUsedAgg = allAggregates.find(
+          a => a.region_key === 'US' && (a.condition === 'used' || !a.condition) && a.sample_size > 0
+        )
+        const shippableAgg = allAggregates.find(
+          a => a.source_type !== 'facebook_marketplace' && a.source_type !== 'offerup' && a.sample_size > 0
+        )
+        const localAgg = allAggregates.find(
+          a => a.region_key !== 'US' && (a.condition === 'used' || !a.condition) && a.sample_size > 0
+        )
+
+        const series = {
+          msrp: verdict.fair_value_range?.high || null,
+          national_used_avg: nationalUsedAgg?.avg_price || null,
+          shippable_avg: shippableAgg?.avg_price || null,
+          local_avg: localAgg?.avg_price || null,
+        }
+
+        // Determine location from options
+        const locationType = options.location?.kind === 'zip' ? 'zip' :
+                            options.location?.kind === 'city' ? 'city' : 'none'
+        const locationValue = options.location?.kind === 'zip' ? options.location.zip :
+                             options.location?.kind === 'city' ? `${options.location.city}, ${options.location.region || ''}`.trim() : null
+
+        // Insert trend point
+        await supabase.from('scan_trend_points').insert({
+          query: query.trim(),
+          scope: regionKey === 'US' ? 'US' : 'National',
+          location_type: locationType,
+          location_value: locationValue,
+          series: series,
+          user_id: userId,
+          scan_id: scanId,
+        } as any)
+      }
+
       // Deduct credit
       await deductCredit(userId)
     } catch (error) {
